@@ -1,0 +1,28 @@
+# Supabase Local Configuration
+# This file is used for local development with Supabase CLI
+
+[project]
+# Replace with your project ref
+project_id = "your-project-ref"
+
+[api]
+enabled = true
+port = 54321
+# Set to true if you want to enable request logging
+request_logging = false
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+# The base URL of your website
+site_url = "http://localhost:3002"
+# Additional redirect URLs
+additional_redirect_urls = []
+# How long tokens are valid for (in seconds)
+jwt_expiry = 3600
