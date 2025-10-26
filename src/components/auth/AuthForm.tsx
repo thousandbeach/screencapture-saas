@@ -231,7 +231,7 @@ export function AuthForm() {
         {mode === 'signup' && (
           <div className="mt-6 glass rounded-lg p-4 border-l-4 border-blue-500">
             <p className="text-xs text-gray-800">
-              アカウント作成後、確認メールが送信される場合があります。
+              アカウント作成後、確認メールを送信します。
               メール内のリンクをクリックして、アカウントを有効化してください。
             </p>
           </div>
