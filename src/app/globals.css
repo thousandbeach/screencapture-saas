@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background: linear-gradient(135deg, #ecf2f8 0%, #e0e8f0 50%, #e8edf5 100%);
+    background-attachment: fixed;
+    transition: background 0.3s ease;
+  }
+
+  body.dark {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(203, 213, 225, 0.5);
+  }
+
+  .dark .glass {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(203, 213, 225, 0.6);
+  }
+
+  .dark .glass-strong {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .gradient-primary {
+    background: linear-gradient(135deg, #00AAFF 0%, #5555FF 100%);
+  }
+
+  .gradient-secondary {
+    background: linear-gradient(135deg, #0099EE 0%, #4444EE 100%);
+  }
+
+  .gradient-animated {
+    background: linear-gradient(270deg, #00AAFF, #0099EE, #5555FF);
+    background-size: 600% 600%;
+    animation: gradientShift 8s ease infinite;
+  }
+
+  @keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+}
