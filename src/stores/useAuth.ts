@@ -12,7 +12,7 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  initialize: () => void;
+  initialize: () => (() => void) | undefined;
   clearError: () => void;
   clearSuccessMessage: () => void;
 }
