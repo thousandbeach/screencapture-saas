@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "email": "email dev --dir src/emails"
+    "email": "email dev --dir src/emails",
+    "email:export": "email export --dir src/emails --outDir .email-output"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
