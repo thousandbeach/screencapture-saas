@@ -90,10 +90,10 @@ export function AuthForm() {
               <Camera className="h-8 w-8 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             ScreenCapture SaaS
           </h1>
-          <p className="text-gray-700">
+          <p className="text-gray-700 dark:text-gray-300">
             {mode === 'signin' ? 'アカウントにログイン' : '新規アカウント作成'}
           </p>
         </div>
@@ -101,9 +101,9 @@ export function AuthForm() {
         {/* 成功メッセージ */}
         {successMessage && (
           <div className="mb-6 glass rounded-lg p-4 border-l-4 border-green-500 flex items-start gap-3">
-            <CheckCircle className="w-5 h-5 text-green-700 flex-shrink-0 mt-0.5" />
+            <CheckCircle className="w-5 h-5 text-green-700 dark:text-green-300 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-green-700">{successMessage}</p>
+              <p className="text-sm font-medium text-green-700 dark:text-green-300">{successMessage}</p>
             </div>
           </div>
         )}
@@ -111,9 +111,9 @@ export function AuthForm() {
         {/* エラー表示 */}
         {displayError && (
           <div className="mb-6 glass rounded-lg p-4 border-l-4 border-red-500 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-700 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-red-700 dark:text-red-300 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-red-700">{displayError}</p>
+              <p className="text-sm font-medium text-red-700 dark:text-red-300">{displayError}</p>
             </div>
           </div>
         )}
@@ -122,17 +122,17 @@ export function AuthForm() {
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* メールアドレス */}
           <div>
-            <label htmlFor="email" className="block text-sm font-medium mb-2 text-gray-900">
+            <label htmlFor="email" className="block text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
               メールアドレス
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-700" />
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-700 dark:text-gray-300" />
               <input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 glass border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
+                className="w-full pl-10 pr-4 py-3 glass border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                 placeholder="your@email.com"
                 disabled={loading}
                 required
@@ -142,17 +142,17 @@ export function AuthForm() {
 
           {/* パスワード */}
           <div>
-            <label htmlFor="password" className="block text-sm font-medium mb-2 text-gray-900">
+            <label htmlFor="password" className="block text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
               パスワード
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-700" />
+              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-700 dark:text-gray-300" />
               <input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 glass border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
+                className="w-full pl-10 pr-4 py-3 glass border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                 placeholder="••••••••"
                 disabled={loading}
                 required
@@ -164,17 +164,17 @@ export function AuthForm() {
           {/* パスワード確認（サインアップ時のみ） */}
           {mode === 'signup' && (
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium mb-2 text-gray-900">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">
                 パスワード（確認）
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-700" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-700 dark:text-gray-300" />
                 <input
                   id="confirmPassword"
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 glass border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
+                  className="w-full pl-10 pr-4 py-3 glass border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="••••••••"
                   disabled={loading}
                   required
@@ -218,7 +218,7 @@ export function AuthForm() {
           <button
             type="button"
             onClick={toggleMode}
-            className="text-sm text-blue-600 hover:text-blue-700 transition-colors"
+            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
             disabled={loading}
           >
             {mode === 'signin'
@@ -230,7 +230,7 @@ export function AuthForm() {
         {/* 注意事項 */}
         {mode === 'signup' && (
           <div className="mt-6 glass rounded-lg p-4 border-l-4 border-blue-500">
-            <p className="text-xs text-gray-800">
+            <p className="text-xs text-gray-800 dark:text-gray-200">
               アカウント作成後、確認メールを送信します。
               メール内のリンクをクリックして、アカウントを有効化してください。
             </p>
