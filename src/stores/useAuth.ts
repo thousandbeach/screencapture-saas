@@ -6,6 +6,7 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   error: AuthError | null;
+  successMessage: string | null;
 
   // Actions
   signIn: (email: string, password: string) => Promise<void>;
@@ -13,12 +14,14 @@ interface AuthState {
   signOut: () => Promise<void>;
   initialize: () => void;
   clearError: () => void;
+  clearSuccessMessage: () => void;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   loading: true,
   error: null,
+  successMessage: null,
 
   /**
    * メールアドレスとパスワードでログイン
@@ -46,7 +49,7 @@ export const useAuth = create<AuthState>((set, get) => ({
    */
   signUp: async (email: string, password: string) => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, successMessage: null });
 
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -59,7 +62,17 @@ export const useAuth = create<AuthState>((set, get) => ({
 
       if (error) throw error;
 
-      set({ user: data.user, loading: false });
+      // セッションがある場合のみユーザーをセット（メール確認不要の場合）
+      // セッションがない場合は、メール確認待ち
+      if (data.session) {
+        set({ user: data.user, loading: false });
+      } else {
+        set({
+          user: null,
+          loading: false,
+          successMessage: 'アカウントを作成しました。確認メールを送信しましたので、メールボックスを確認してリンクをクリックしてください。'
+        });
+      }
     } catch (error) {
       set({ error: error as AuthError, loading: false });
       throw error;
@@ -112,5 +125,12 @@ export const useAuth = create<AuthState>((set, get) => ({
    */
   clearError: () => {
     set({ error: null });
+  },
+
+  /**
+   * 成功メッセージをクリア
+   */
+  clearSuccessMessage: () => {
+    set({ successMessage: null });
   },
 }));
