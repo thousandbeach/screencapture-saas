@@ -7,6 +7,15 @@ import {
   InsertCaptureHistory,
   InsertActiveProject,
 } from '@/lib/types';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+
+// デバイス別ビューポート設定
+const DEVICE_VIEWPORTS: Record<string, { width: number; height: number }> = {
+  desktop: { width: 1920, height: 1080 },
+  tablet: { width: 1024, height: 768 },
+  mobile: { width: 480, height: 800 },
+};
 
 /**
  * スクリーンショット取得API
@@ -112,97 +121,110 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. スクリーンショット取得処理
-    // TODO: Next.js API Routes + Puppeteerで実装
-    //
-    // 【実装方針】
-    // Supabase Edge Functionsではなく、この関数内で直接Puppeteerを実行します。
-    //
-    // 【理由】
-    // - Deno環境でのPuppeteer実行は、Chromiumバイナリ配置が困難
-    // - Next.js（Node.js環境）ならpuppeteer-core + @sparticuz/chromiumで簡単
-    // - Vercelで動作保証あり、デバッグも容易
-    //
-    // 【実装手順】
-    // 1. パッケージインストール:
-    //    pnpm add puppeteer-core @sparticuz/chromium
-    //    pnpm add -D @types/node
-    //
-    // 2. バックグラウンド処理化:
-    //    - 即座に200 OKを返却（レスポンス返却後も処理継続）
-    //    - または、別のAPI Route（/api/screenshot-worker）に処理を委譲
-    //
-    // 3. Puppeteer実装:
-    //    ```typescript
-    //    import puppeteer from 'puppeteer-core';
-    //    import chromium from '@sparticuz/chromium';
-    //
-    //    const browser = await puppeteer.launch({
-    //      args: chromium.args,
-    //      executablePath: await chromium.executablePath(),
-    //      headless: chromium.headless,
-    //    });
-    //
-    //    for (const device of options.devices) {
-    //      const page = await browser.newPage();
-    //      await page.setViewport(DEVICE_VIEWPORTS[device]);
-    //      await page.goto(url, { waitUntil: 'networkidle2' });
-    //
-    //      const screenshot = await page.screenshot({
-    //        type: 'webp',
-    //        quality: 85,
-    //        fullPage: true,
-    //      });
-    //
-    //      // Supabase Storageにアップロード
-    //      const uploadPath = `${project.storage_path}/${device}_${Date.now()}.webp`;
-    //      await supabaseAdmin.storage
-    //        .from('screenshots')
-    //        .upload(uploadPath, screenshot);
-    //
-    //      // プログレス更新
-    //      await supabaseAdmin
-    //        .from('active_projects')
-    //        .update({ progress: Math.round((++completed / total) * 100) })
-    //        .eq('id', project.id);
-    //    }
-    //
-    //    // ステータスをcompletedに更新
-    //    await supabaseAdmin
-    //      .from('active_projects')
-    //      .update({ status: 'completed', progress: 100 })
-    //      .eq('id', project.id);
-    //    ```
-    //
-    // 【注意事項】
-    // - Vercel Serverless Functionsの実行時間制限: 60秒（Hobby）、300秒（Pro）
-    // - メモリ制限: 1024MB（Hobby）、3008MB（Pro）
-    // - 大量ページの場合はタイムアウトに注意
-    //
-    // 【Edge Function（Deno）を使わない理由】
-    // - capture-screenshot/index.tsは参考実装として残すが、実行しない
-    // - 下記のコードはコメントアウト（Edge Functionを呼び出さない）
-    /*
-    try {
-      await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/capture-screenshot`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-          },
-          body: JSON.stringify({
-            project_id: project.id,
-            url,
-            options,
-          }),
+    // 5. スクリーンショット取得処理（バックグラウンド実行）
+    // レスポンスを即座に返し、スクリーンショット取得は非同期で実行
+    (async () => {
+      let browser;
+      try {
+        console.log(`[Screenshot] Starting capture for project ${project.id}`);
+
+        // Puppeteerブラウザ起動
+        browser = await puppeteer.launch({
+          args: chromium.args,
+          executablePath: await chromium.executablePath(),
+          headless: true,
+        });
+
+        console.log('[Screenshot] Browser launched successfully');
+
+        const devices = options.devices || ['desktop'];
+        const totalScreenshots = devices.length;
+        let completedScreenshots = 0;
+
+        // デバイスごとにスクリーンショット取得
+        for (const device of devices) {
+          console.log(`[Screenshot] Capturing ${device} screenshot`);
+
+          const page = await browser.newPage();
+
+          // ビューポート設定
+          const viewport = DEVICE_VIEWPORTS[device];
+          if (viewport) {
+            await page.setViewport(viewport);
+          }
+
+          // ページ遷移
+          await page.goto(url, {
+            waitUntil: 'networkidle2',
+            timeout: 30000, // 30秒タイムアウト
+          });
+
+          // スクリーンショット取得
+          const screenshot = await page.screenshot({
+            type: 'webp',
+            quality: 85,
+            fullPage: true,
+          });
+
+          // Supabase Storageにアップロード
+          const uploadPath = `${project.storage_path}/${device}_${Date.now()}.webp`;
+          const { error: uploadError } = await supabaseAdmin.storage
+            .from('screenshots')
+            .upload(uploadPath, screenshot, {
+              contentType: 'image/webp',
+            });
+
+          if (uploadError) {
+            console.error(`[Screenshot] Upload error for ${device}:`, uploadError);
+            throw uploadError;
+          }
+
+          console.log(`[Screenshot] Uploaded ${device} screenshot: ${uploadPath}`);
+
+          // ページクローズ
+          await page.close();
+
+          // プログレス更新
+          completedScreenshots++;
+          const progress = Math.round((completedScreenshots / totalScreenshots) * 100);
+
+          await supabaseAdmin
+            .from('active_projects')
+            .update({ progress })
+            .eq('id', project.id);
+
+          console.log(`[Screenshot] Progress: ${progress}%`);
         }
-      );
-    } catch (edgeFunctionError) {
-      console.error('Edge Function invocation error:', edgeFunctionError);
-    }
-    */
+
+        // すべて完了 - ステータスをcompletedに更新
+        await supabaseAdmin
+          .from('active_projects')
+          .update({
+            status: 'completed',
+            progress: 100,
+          })
+          .eq('id', project.id);
+
+        console.log(`[Screenshot] Project ${project.id} completed successfully`);
+      } catch (error) {
+        console.error(`[Screenshot] Error for project ${project.id}:`, error);
+
+        // エラー時はステータスをerrorに更新
+        await supabaseAdmin
+          .from('active_projects')
+          .update({
+            status: 'error',
+            error_message: error instanceof Error ? error.message : 'スクリーンショット取得に失敗しました',
+          })
+          .eq('id', project.id);
+      } finally {
+        // ブラウザクローズ
+        if (browser) {
+          await browser.close();
+          console.log('[Screenshot] Browser closed');
+        }
+      }
+    })(); // 即座に実行（awaitなし）
 
     // 6. レスポンス返却
     const response: CaptureResponse = {
