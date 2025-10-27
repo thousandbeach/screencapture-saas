@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 /**
  * Cron Job用クリーンアップAPI
  * GET /api/cron/cleanup
- * Vercel Cron Jobsから1時間ごとに呼び出される
+ * Vercel Cron Jobsから1日1回（毎日0時）に呼び出される
  */
 export async function GET(request: NextRequest) {
   try {
