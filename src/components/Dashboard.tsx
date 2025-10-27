@@ -113,14 +113,127 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleRecapture = (historyId: string) => {
-    console.log('Recapturing:', historyId);
-    // Implementation here
+  const handleRecapture = async (historyId: string) => {
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('認証が必要です。再度ログインしてください。');
+        return;
+      }
+
+      // 履歴から情報取得
+      const historyItem = history.find((h) => h.id === historyId);
+      if (!historyItem) {
+        alert('履歴が見つかりません');
+        return;
+      }
+
+      const confirmed = window.confirm(`${historyItem.url} を再度キャプチャしますか？`);
+      if (!confirmed) return;
+
+      // API呼び出し
+      const response = await fetch('/api/capture', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          url: historyItem.url,
+          options: {
+            devices: ['desktop'], // デフォルト設定
+            max_pages: historyItem.pageCount,
+            all_pages: false,
+            exclude_popups: false,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'スクリーンショット取得に失敗しました');
+      }
+
+      alert(`スクリーンショット取得を開始しました。プロジェクトID: ${data.project_id}`);
+
+      // データを再取得
+      await fetchActiveProjects();
+      await fetchHistory();
+    } catch (error) {
+      console.error('Recapture error:', error);
+      alert(error instanceof Error ? error.message : 'エラーが発生しました');
+    }
   };
 
-  const handleFavoriteClick = (favoriteId: string) => {
-    console.log('Running favorite:', favoriteId);
-    // Implementation here
+  const handleFavoriteClick = async (favoriteId: string) => {
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('認証が必要です。再度ログインしてください。');
+        return;
+      }
+
+      // お気に入りから情報取得
+      const favorite = favorites.find((f) => f.id === favoriteId);
+      if (!favorite) {
+        alert('お気に入りが見つかりません');
+        return;
+      }
+
+      const confirmed = window.confirm(`${favorite.title} (${favorite.url}) をキャプチャしますか？`);
+      if (!confirmed) return;
+
+      // お気に入りの設定またはデフォルト設定を使用
+      const options = favorite.settings || {
+        devices: ['desktop'],
+        max_pages: 1,
+        all_pages: false,
+        exclude_popups: false,
+      };
+
+      // API呼び出し
+      const response = await fetch('/api/capture', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          url: favorite.url,
+          options: {
+            devices: options.devices || ['desktop'],
+            max_pages: options.allPages ? 999 : (options.max_pages || 1),
+            all_pages: options.allPages || false,
+            exclude_popups: options.excludePopups || false,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'スクリーンショット取得に失敗しました');
+      }
+
+      alert(`スクリーンショット取得を開始しました。プロジェクトID: ${data.project_id}`);
+
+      // お気に入りのcapture_countを更新
+      await supabase
+        .from('favorite_sites')
+        .update({ capture_count: favorite.captureCount + 1 })
+        .eq('id', favoriteId);
+
+      // データを再取得
+      await fetchActiveProjects();
+      await fetchFavorites();
+      await fetchHistory();
+    } catch (error) {
+      console.error('Favorite click error:', error);
+      alert(error instanceof Error ? error.message : 'エラーが発生しました');
+    }
   };
 
   const handleDownload = async (projectId: string) => {
