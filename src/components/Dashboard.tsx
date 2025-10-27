@@ -9,37 +9,20 @@ import {
 } from 'lucide-react';
 import { useDarkMode } from '@/stores/useDarkMode';
 import { useAuth } from '@/stores/useAuth';
+import { supabase } from '@/lib/supabase';
+import type {
+  ActiveProjectDisplay,
+  FavoriteSiteDisplay,
+  HistoryItemDisplay,
+  ActiveProject as DbActiveProject,
+  FavoriteSite as DbFavoriteSite,
+  CaptureHistory as DbCaptureHistory,
+} from '@/lib/types';
 
-// Types
-interface ActiveProject {
-  id: string;
-  url: string;
-  pageCount: number;
-  devices: string[];
-  status: 'processing' | 'completed' | 'error';
-  progress: number;
-  expiresAt: Date;
-  downloadCount: number;
-}
-
-interface FavoriteSite {
-  id: string;
-  url: string;
-  title: string;
-  captureCount: number;
-  settings?: {
-    allPages: boolean;
-    devices: string[];
-    excludePopups: boolean;
-  };
-}
-
-interface HistoryItem {
-  id: string;
-  url: string;
-  pageCount: number;
-  capturedAt: Date;
-}
+// Type aliases for component use
+type ActiveProject = ActiveProjectDisplay;
+type FavoriteSite = FavoriteSiteDisplay;
+type HistoryItem = HistoryItemDisplay;
 
 // Utility functions
 const getTimeLeft = (expiresAt: Date) => {
@@ -55,81 +38,12 @@ const formatTime = (date: Date) => {
 
 // Main Dashboard Component
 const Dashboard: React.FC = () => {
-  const [activeProjects] = useState<ActiveProject[]>([
-    {
-      id: '1',
-      url: 'https://example.com',
-      pageCount: 300,
-      devices: ['desktop', 'mobile', 'tablet'],
-      status: 'completed',
-      progress: 100,
-      expiresAt: new Date(Date.now() + 18 * 60 * 60 * 1000),
-      downloadCount: 0
-    },
-    {
-      id: '2',
-      url: 'https://blog.example.jp',
-      pageCount: 150,
-      devices: ['desktop', 'mobile', 'tablet'],
-      status: 'processing',
-      progress: 30,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      downloadCount: 0
-    },
-    {
-      id: '3',
-      url: 'https://shop.example.com',
-      pageCount: 50,
-      devices: ['desktop'],
-      status: 'completed',
-      progress: 100,
-      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-      downloadCount: 1
-    }
-  ]);
-
-  const [favorites] = useState<FavoriteSite[]>([
-    {
-      id: '1',
-      url: 'company.com',
-      title: '会社HP',
-      captureCount: 28
-    },
-    {
-      id: '2',
-      url: 'shop.example.com',
-      title: 'ECサイト',
-      captureCount: 15
-    },
-    {
-      id: '3',
-      url: 'blog.example.jp',
-      title: 'ブログ',
-      captureCount: 12
-    },
-    {
-      id: '4',
-      url: 'competitor-a.com',
-      title: '競合サイトA',
-      captureCount: 8,
-      settings: {
-        allPages: true,
-        devices: ['desktop', 'mobile', 'tablet'],
-        excludePopups: true
-      }
-    }
-  ]);
-
-  const [history] = useState<HistoryItem[]>([
-    { id: '1', url: 'example.com', pageCount: 50, capturedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) },
-    { id: '2', url: 'docs.google.com', pageCount: 1, capturedAt: new Date(Date.now() - 5 * 60 * 60 * 1000) },
-    { id: '3', url: 'github.com/project', pageCount: 25, capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-    { id: '4', url: 'stackoverflow.com', pageCount: 3, capturedAt: new Date(Date.now() - 30 * 60 * 60 * 1000) },
-    { id: '5', url: 'aws.amazon.com', pageCount: 120, capturedAt: new Date(Date.now() - 72 * 60 * 60 * 1000) }
-  ]);
-
+  const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteSite[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [url, setUrl] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
   const { darkMode, toggleDarkMode } = useDarkMode();
   const { user, signOut } = useAuth();
 
@@ -169,6 +83,144 @@ const Dashboard: React.FC = () => {
     console.log('Downloading:', projectId);
     // Implementation here
   };
+
+  // データ取得関数
+  const fetchActiveProjects = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('active_projects')
+        .select(`
+          *,
+          history:capture_history!inner(base_url, page_count, metadata)
+        `)
+        .eq('user_id', user.id)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // DBデータをDisplay型に変換
+      const projects: ActiveProject[] = (data || []).map((project: any) => ({
+        id: project.id,
+        url: project.history.base_url,
+        pageCount: project.history.page_count,
+        devices: project.history.metadata?.devices || ['desktop'],
+        status: project.status,
+        progress: project.progress,
+        expiresAt: new Date(project.expires_at),
+        downloadCount: project.download_count,
+      }));
+
+      setActiveProjects(projects);
+    } catch (error) {
+      console.error('Error fetching active projects:', error);
+    }
+  };
+
+  const fetchFavorites = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('favorite_sites')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('capture_count', { ascending: false });
+
+      if (error) throw error;
+
+      // DBデータをDisplay型に変換
+      const favs: FavoriteSite[] = (data || []).map((fav: DbFavoriteSite) => ({
+        id: fav.id,
+        url: fav.url,
+        title: fav.title || fav.url,
+        captureCount: fav.capture_count,
+        settings: fav.settings,
+      }));
+
+      setFavorites(favs);
+    } catch (error) {
+      console.error('Error fetching favorites:', error);
+    }
+  };
+
+  const fetchHistory = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('capture_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('captured_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      // DBデータをDisplay型に変換
+      const historyItems: HistoryItem[] = (data || []).map((item: DbCaptureHistory) => ({
+        id: item.id,
+        url: item.base_url,
+        pageCount: item.page_count,
+        capturedAt: new Date(item.captured_at),
+      }));
+
+      setHistory(historyItems);
+    } catch (error) {
+      console.error('Error fetching history:', error);
+    }
+  };
+
+  // 初期データ取得
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchData = async () => {
+      setLoading(true);
+      await Promise.all([
+        fetchActiveProjects(),
+        fetchFavorites(),
+        fetchHistory(),
+      ]);
+      setLoading(false);
+    };
+
+    fetchData();
+  }, [user]);
+
+  // Realtimeリスナー: active_projectsの変更を監視
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('active_projects_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE すべて監視
+          schema: 'public',
+          table: 'active_projects',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('[Realtime] active_projects change:', payload);
+
+          // プロジェクトデータを再取得
+          fetchActiveProjects();
+        }
+      )
+      .subscribe();
+
+    // クリーンアップ
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   return (
     <div className="min-h-screen">
