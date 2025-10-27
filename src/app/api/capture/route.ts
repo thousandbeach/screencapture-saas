@@ -112,8 +112,76 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Edge Functionを呼び出す（非同期処理）
-    // TODO: Phase 4でSupabase Edge Function実装後に有効化
+    // 5. スクリーンショット取得処理
+    // TODO: Next.js API Routes + Puppeteerで実装
+    //
+    // 【実装方針】
+    // Supabase Edge Functionsではなく、この関数内で直接Puppeteerを実行します。
+    //
+    // 【理由】
+    // - Deno環境でのPuppeteer実行は、Chromiumバイナリ配置が困難
+    // - Next.js（Node.js環境）ならpuppeteer-core + @sparticuz/chromiumで簡単
+    // - Vercelで動作保証あり、デバッグも容易
+    //
+    // 【実装手順】
+    // 1. パッケージインストール:
+    //    pnpm add puppeteer-core @sparticuz/chromium
+    //    pnpm add -D @types/node
+    //
+    // 2. バックグラウンド処理化:
+    //    - 即座に200 OKを返却（レスポンス返却後も処理継続）
+    //    - または、別のAPI Route（/api/screenshot-worker）に処理を委譲
+    //
+    // 3. Puppeteer実装:
+    //    ```typescript
+    //    import puppeteer from 'puppeteer-core';
+    //    import chromium from '@sparticuz/chromium';
+    //
+    //    const browser = await puppeteer.launch({
+    //      args: chromium.args,
+    //      executablePath: await chromium.executablePath(),
+    //      headless: chromium.headless,
+    //    });
+    //
+    //    for (const device of options.devices) {
+    //      const page = await browser.newPage();
+    //      await page.setViewport(DEVICE_VIEWPORTS[device]);
+    //      await page.goto(url, { waitUntil: 'networkidle2' });
+    //
+    //      const screenshot = await page.screenshot({
+    //        type: 'webp',
+    //        quality: 85,
+    //        fullPage: true,
+    //      });
+    //
+    //      // Supabase Storageにアップロード
+    //      const uploadPath = `${project.storage_path}/${device}_${Date.now()}.webp`;
+    //      await supabaseAdmin.storage
+    //        .from('screenshots')
+    //        .upload(uploadPath, screenshot);
+    //
+    //      // プログレス更新
+    //      await supabaseAdmin
+    //        .from('active_projects')
+    //        .update({ progress: Math.round((++completed / total) * 100) })
+    //        .eq('id', project.id);
+    //    }
+    //
+    //    // ステータスをcompletedに更新
+    //    await supabaseAdmin
+    //      .from('active_projects')
+    //      .update({ status: 'completed', progress: 100 })
+    //      .eq('id', project.id);
+    //    ```
+    //
+    // 【注意事項】
+    // - Vercel Serverless Functionsの実行時間制限: 60秒（Hobby）、300秒（Pro）
+    // - メモリ制限: 1024MB（Hobby）、3008MB（Pro）
+    // - 大量ページの場合はタイムアウトに注意
+    //
+    // 【Edge Function（Deno）を使わない理由】
+    // - capture-screenshot/index.tsは参考実装として残すが、実行しない
+    // - 下記のコードはコメントアウト（Edge Functionを呼び出さない）
     /*
     try {
       await fetch(
@@ -133,7 +201,6 @@ export async function POST(request: NextRequest) {
       );
     } catch (edgeFunctionError) {
       console.error('Edge Function invocation error:', edgeFunctionError);
-      // Edge Functionのエラーはプロジェクト作成を妨げない（非同期処理のため）
     }
     */
 
