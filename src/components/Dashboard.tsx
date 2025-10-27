@@ -5,9 +5,10 @@ import {
   Clock, Download, Star, Globe, Play, RefreshCw, Plus,
   Settings, Search, Bell, Database, FileImage, TrendingUp,
   Loader2, AlertTriangle, Info, X, Camera, Menu,
-  LayoutDashboard, History, Moon, Sun
+  LayoutDashboard, History, Moon, Sun, LogOut
 } from 'lucide-react';
 import { useDarkMode } from '@/stores/useDarkMode';
+import { useAuth } from '@/stores/useAuth';
 
 // Types
 interface ActiveProject {
@@ -130,6 +131,15 @@ const Dashboard: React.FC = () => {
   const [url, setUrl] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { darkMode, toggleDarkMode } = useDarkMode();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
 
   useEffect(() => {
     if (darkMode) {
@@ -217,8 +227,21 @@ const Dashboard: React.FC = () => {
                 </button>
                 <div className="hidden sm:flex items-center space-x-2">
                   <div className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
-                  <span className={`text-sm font-medium ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>user@example.com</span>
+                  <span className={`text-sm font-medium ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                    {user?.email || 'user@example.com'}
+                  </span>
                 </div>
+                <button
+                  onClick={handleSignOut}
+                  className={`p-2 rounded-lg transition-colors ${
+                    darkMode
+                      ? 'text-gray-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                  title="ログアウト"
+                >
+                  <LogOut className="h-5 w-5" />
+                </button>
               </div>
             </div>
           </div>

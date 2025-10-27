@@ -6,18 +6,26 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "email": "email dev --dir src/emails",
+    "email:export": "email export --dir src/emails --outDir .email-output"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^141.0.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.76.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.344.0",
     "next": "^15.1.6",
+    "puppeteer-core": "^24.26.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@react-email/components": "^0.5.7",
+    "@react-email/preview-server": "^4.3.2",
+    "@types/jszip": "^3.4.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -25,6 +33,7 @@
     "eslint": "^8",
     "eslint-config-next": "15.1.6",
     "postcss": "^8",
+    "react-email": "^4.3.2",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   }
