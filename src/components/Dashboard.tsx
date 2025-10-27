@@ -205,9 +205,9 @@ const Dashboard: React.FC = () => {
           url: favorite.url,
           options: {
             devices: options.devices || ['desktop'],
-            max_pages: options.allPages ? 999 : (options.max_pages || 1),
-            all_pages: options.allPages || false,
-            exclude_popups: options.excludePopups || false,
+            max_pages: options.all_pages ? 999 : (options.max_pages || 1),
+            all_pages: options.all_pages || false,
+            exclude_popups: options.exclude_popups || false,
           },
         }),
       });
@@ -809,13 +809,13 @@ const FavoriteCard: React.FC<{
       </div>
       {favorite.settings && (
         <div className="mt-2 flex flex-wrap gap-1">
-          {favorite.settings.allPages && (
+          {favorite.settings.all_pages && (
             <span className="text-xs gradient-primary text-white px-2 py-0.5 rounded">全ページ</span>
           )}
-          {favorite.settings.devices.length === 3 && (
+          {favorite.settings.devices && favorite.settings.devices.length === 3 && (
             <span className="text-xs gradient-primary text-white px-2 py-0.5 rounded">3デバイス</span>
           )}
-          {favorite.settings.excludePopups && (
+          {favorite.settings.exclude_popups && (
             <span className="text-xs gradient-primary text-white px-2 py-0.5 rounded">ポップアップ除外</span>
           )}
         </div>

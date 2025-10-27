@@ -9,10 +9,10 @@ import JSZip from 'jszip';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const { projectId } = params;
+    const { projectId } = await params;
 
     // 1. 認証チェック
     const authHeader = request.headers.get('authorization');
@@ -112,7 +112,7 @@ export async function GET(
     }
 
     // ZIP生成
-    const zipBlob = await zip.generateAsync({ type: 'uint8array' });
+    const zipBuffer = await zip.generateAsync({ type: 'arraybuffer' });
 
     // 5. ダウンロードカウント更新
     await supabaseAdmin
@@ -124,12 +124,12 @@ export async function GET(
     const baseUrl = project.history.base_url.replace(/https?:\/\//, '').replace(/\//g, '_');
     const filename = `${baseUrl}_${projectId.substring(0, 8)}.zip`;
 
-    return new NextResponse(zipBlob, {
+    return new NextResponse(zipBuffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': zipBlob.length.toString(),
+        'Content-Length': zipBuffer.byteLength.toString(),
       },
     });
   } catch (error) {
