@@ -63,10 +63,54 @@ const Dashboard: React.FC = () => {
     }
   }, [darkMode]);
 
-  const handleCapture = () => {
+  const handleCapture = async () => {
     if (!url) return;
-    console.log('Capturing:', url);
-    // Implementation here
+
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('認証が必要です。再度ログインしてください。');
+        return;
+      }
+
+      // API呼び出し
+      const response = await fetch('/api/capture', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          url,
+          options: {
+            devices: ['desktop'], // デフォルト: デスクトップのみ
+            max_pages: 1, // デフォルト: 1ページ
+            all_pages: false,
+            exclude_popups: false,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'スクリーンショット取得に失敗しました');
+      }
+
+      // 成功メッセージ
+      alert(`スクリーンショット取得を開始しました。プロジェクトID: ${data.project_id}`);
+
+      // URLをクリア
+      setUrl('');
+
+      // データを再取得（新しいプロジェクトを表示）
+      await fetchActiveProjects();
+      await fetchHistory();
+    } catch (error) {
+      console.error('Capture error:', error);
+      alert(error instanceof Error ? error.message : 'エラーが発生しました');
+    }
   };
 
   const handleRecapture = (historyId: string) => {
@@ -79,9 +123,55 @@ const Dashboard: React.FC = () => {
     // Implementation here
   };
 
-  const handleDownload = (projectId: string) => {
-    console.log('Downloading:', projectId);
-    // Implementation here
+  const handleDownload = async (projectId: string) => {
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('認証が必要です。再度ログインしてください。');
+        return;
+      }
+
+      // ダウンロード開始メッセージ
+      const confirmed = window.confirm('スクリーンショットをZIPファイルとしてダウンロードしますか？');
+      if (!confirmed) return;
+
+      // API呼び出し
+      const response = await fetch(`/api/download/${projectId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'ダウンロードに失敗しました');
+      }
+
+      // Blobとしてダウンロード
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      // ファイル名を取得（Content-Dispositionヘッダーから）
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+      const filename = filenameMatch ? filenameMatch[1] : `screenshots_${projectId}.zip`;
+
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      // データを再取得（ダウンロードカウントを更新）
+      await fetchActiveProjects();
+    } catch (error) {
+      console.error('Download error:', error);
+      alert(error instanceof Error ? error.message : 'ダウンロードエラーが発生しました');
+    }
   };
 
   // データ取得関数
