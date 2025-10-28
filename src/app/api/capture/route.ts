@@ -7,14 +7,19 @@ import {
   InsertCaptureHistory,
   InsertActiveProject,
 } from '@/lib/types';
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
 
 // デバイス別ビューポート設定
-const DEVICE_VIEWPORTS: Record<string, { width: number; height: number }> = {
-  desktop: { width: 1920, height: 1080 },
-  tablet: { width: 1024, height: 768 },
-  mobile: { width: 480, height: 800 },
+const DEVICE_VIEWPORTS: Record<string, { width: number; height: number; isMobile?: boolean; hasTouch?: boolean }> = {
+  desktop: { width: 1920, height: 1080, isMobile: false, hasTouch: false },
+  tablet: { width: 1024, height: 768, isMobile: true, hasTouch: true },
+  mobile: { width: 390, height: 844, isMobile: true, hasTouch: true }, // iPhone 14 Pro サイズに変更
+};
+
+// デバイス別User-Agent設定
+const DEVICE_USER_AGENTS: Record<string, string> = {
+  desktop: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  tablet: 'Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+  mobile: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
 };
 
 /**
@@ -26,6 +31,8 @@ export async function POST(request: NextRequest) {
     // 1. リクエストボディ取得とバリデーション
     const body: CaptureRequest = await request.json();
     const { url, options } = body;
+
+    console.log('[Capture API] Received request:', JSON.stringify({ url, options }, null, 2));
 
     if (!url || !options) {
       return NextResponse.json(
@@ -129,11 +136,28 @@ export async function POST(request: NextRequest) {
         console.log(`[Screenshot] Starting capture for project ${project.id}`);
 
         // Puppeteerブラウザ起動
-        browser = await puppeteer.launch({
-          args: chromium.args,
-          executablePath: await chromium.executablePath(),
-          headless: true,
-        });
+        // Vercel環境では@sparticuz/chromiumを使用、ローカルではデフォルトのChromiumを使用
+        const isVercel = process.env.VERCEL === '1';
+
+        if (isVercel) {
+          // Vercel環境: puppeteer-core + @sparticuz/chromium
+          const puppeteerCore = (await import('puppeteer-core')).default;
+          const chromium = (await import('@sparticuz/chromium')).default;
+
+          browser = await puppeteerCore.launch({
+            args: chromium.args,
+            executablePath: await chromium.executablePath(),
+            headless: true,
+          });
+        } else {
+          // ローカル環境: puppeteerのChromiumを使用
+          const puppeteer = (await import('puppeteer')).default;
+
+          browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          });
+        }
 
         console.log('[Screenshot] Browser launched successfully');
 
@@ -147,27 +171,138 @@ export async function POST(request: NextRequest) {
 
           const page = await browser.newPage();
 
-          // ビューポート設定
-          const viewport = DEVICE_VIEWPORTS[device];
-          if (viewport) {
-            await page.setViewport(viewport);
-          }
+          // デバイスエミュレーション設定
+          const viewport = DEVICE_VIEWPORTS[device] || DEVICE_VIEWPORTS.desktop;
+          const userAgent = DEVICE_USER_AGENTS[device] || DEVICE_USER_AGENTS.desktop;
 
-          // ページ遷移
-          await page.goto(url, {
-            waitUntil: 'networkidle2',
-            timeout: 30000, // 30秒タイムアウト
+          console.log(`[Screenshot] Device: ${device}, Viewport:`, viewport);
+          console.log(`[Screenshot] User-Agent:`, userAgent);
+
+          // Chrome DevToolsと同じレベルのデバイスエミュレーション
+          await page.emulate({
+            viewport: {
+              width: viewport.width,
+              height: viewport.height,
+              deviceScaleFactor: device === 'mobile' ? 2 : device === 'tablet' ? 2 : 1, // モバイルを3から2に変更
+              isMobile: viewport.isMobile || false,
+              hasTouch: viewport.hasTouch || false,
+              isLandscape: false,
+            },
+            userAgent: userAgent,
           });
 
+          console.log(`[Screenshot] Emulation set for ${device}`);
+
+          // ページ遷移（より厳密な待機条件）
+          console.log(`[Screenshot] Navigating to ${url} for ${device}`);
+          await page.goto(url, {
+            waitUntil: 'networkidle0', // すべてのネットワークリクエストが完了するまで待つ
+            timeout: 60000, // 60秒タイムアウト
+          });
+
+          console.log(`[Screenshot] Page loaded for ${device}`);
+
+          // JavaScript実行とレンダリングの完了を待つ
+          await new Promise(resolve => setTimeout(resolve, 3000)); // 3秒待機
+
+          console.log(`[Screenshot] Wait completed for ${device}`);
+
+          // ポップアップ除外処理
+          if (options.exclude_popups) {
+            await page.evaluate(() => {
+              // OneTrust、Cookiebot、その他のクッキー同意モーダル/ポップアップのセレクター
+              const specificSelectors = [
+                '#onetrust-consent-sdk',
+                '#onetrust-banner-sdk',
+                '.onetrust-pc-dark-filter',
+                '#CybotCookiebotDialog',
+                '.cookiebot-dialog',
+                '#cookie-banner',
+                '#cookie-consent',
+                '#cookiebanner',
+              ];
+
+              // 特定のセレクターを強制的に削除
+              specificSelectors.forEach(selector => {
+                try {
+                  const elements = document.querySelectorAll(selector);
+                  elements.forEach(el => {
+                    el.remove();
+                  });
+                } catch (e) {
+                  // エラーは無視
+                }
+              });
+
+              // 一般的なパターンマッチングセレクター
+              const patternSelectors = [
+                '[role="dialog"]',
+                '[class*="cookie"]',
+                '[class*="consent"]',
+                '[class*="gdpr"]',
+                '[class*="modal"]',
+                '[class*="popup"]',
+                '[id*="cookie"]',
+                '[id*="consent"]',
+                '[id*="gdpr"]',
+                '[id*="modal"]',
+                '[id*="popup"]',
+              ];
+
+              // セレクターに一致する要素を非表示にする
+              patternSelectors.forEach(selector => {
+                try {
+                  const elements = document.querySelectorAll(selector);
+                  elements.forEach(el => {
+                    const htmlEl = el as HTMLElement;
+                    // モーダルやポップアップっぽい要素のみ除外（z-indexが高い、positionがfixed/absoluteなど）
+                    const style = window.getComputedStyle(htmlEl);
+                    if (
+                      style.position === 'fixed' ||
+                      style.position === 'absolute' ||
+                      parseInt(style.zIndex) > 1000
+                    ) {
+                      htmlEl.style.display = 'none';
+                    }
+                  });
+                } catch (e) {
+                  // エラーは無視
+                }
+              });
+
+              // overlayやbackdropも除外
+              const overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"]');
+              overlays.forEach(el => {
+                const htmlEl = el as HTMLElement;
+                const style = window.getComputedStyle(htmlEl);
+                if (style.position === 'fixed' || style.position === 'absolute') {
+                  htmlEl.style.display = 'none';
+                }
+              });
+            });
+
+            console.log(`[Screenshot] Excluded popups for ${device}`);
+          }
+
           // スクリーンショット取得
+          console.log(`[Screenshot] Taking screenshot for ${device}...`);
           const screenshot = await page.screenshot({
             type: 'webp',
             quality: 85,
             fullPage: true,
           });
 
+          console.log(`[Screenshot] Screenshot buffer size for ${device}: ${screenshot.length} bytes`);
+
+          if (!screenshot || screenshot.length === 0) {
+            console.error(`[Screenshot] Empty screenshot buffer for ${device}`);
+            throw new Error(`スクリーンショットが空です (${device})`);
+          }
+
           // Supabase Storageにアップロード
           const uploadPath = `${project.storage_path}/${device}_${Date.now()}.webp`;
+          console.log(`[Screenshot] Uploading ${device} screenshot to ${uploadPath}...`);
+
           const { error: uploadError } = await supabaseAdmin.storage
             .from('screenshots')
             .upload(uploadPath, screenshot, {
