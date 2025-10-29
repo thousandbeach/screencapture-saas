@@ -21,10 +21,18 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Cookieで認証済みかチェック
+  const authCookie = request.cookies.get('auth-verified');
+  if (authCookie?.value === 'true') {
+    console.log('[Middleware] Already authenticated via cookie');
+    return NextResponse.next();
+  }
+
   // Vercel上のすべての環境（本番・プレビュー）でBasic認証を適用
   const basicAuth = request.headers.get('authorization');
 
   // デバッグログ
+  console.log('[Middleware] Path:', request.nextUrl.pathname);
   console.log('[Middleware] Environment:', process.env.NODE_ENV);
   console.log('[Middleware] Has PREVIEW_PASSWORD:', !!process.env.PREVIEW_PASSWORD);
   console.log('[Middleware] Has authorization header:', !!basicAuth);
@@ -42,7 +50,17 @@ export function middleware(request: NextRequest) {
       // ユーザー名: preview、パスワード: 環境変数
       if (user === 'preview' && pwd === process.env.PREVIEW_PASSWORD) {
         console.log('[Middleware] Authentication successful');
-        return NextResponse.next();
+
+        // 認証成功時にCookieをセット
+        const response = NextResponse.next();
+        response.cookies.set('auth-verified', 'true', {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'strict',
+          maxAge: 60 * 60 * 24, // 24時間
+        });
+
+        return response;
       } else {
         console.log('[Middleware] Authentication failed - credentials mismatch');
       }
