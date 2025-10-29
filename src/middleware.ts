@@ -24,19 +24,34 @@ export function middleware(request: NextRequest) {
   // Vercel上のすべての環境（本番・プレビュー）でBasic認証を適用
   const basicAuth = request.headers.get('authorization');
 
+  // デバッグログ
+  console.log('[Middleware] Environment:', process.env.NODE_ENV);
+  console.log('[Middleware] Has PREVIEW_PASSWORD:', !!process.env.PREVIEW_PASSWORD);
+  console.log('[Middleware] Has authorization header:', !!basicAuth);
+
   if (basicAuth) {
     try {
       const authValue = basicAuth.split(' ')[1];
       const [user, pwd] = atob(authValue).split(':');
 
+      console.log('[Middleware] Received user:', user);
+      console.log('[Middleware] Password length:', pwd?.length);
+      console.log('[Middleware] Expected password length:', process.env.PREVIEW_PASSWORD?.length);
+      console.log('[Middleware] Passwords match:', pwd === process.env.PREVIEW_PASSWORD);
+
       // ユーザー名: preview、パスワード: 環境変数
       if (user === 'preview' && pwd === process.env.PREVIEW_PASSWORD) {
+        console.log('[Middleware] Authentication successful');
         return NextResponse.next();
+      } else {
+        console.log('[Middleware] Authentication failed - credentials mismatch');
       }
     } catch (error) {
       // Base64デコードエラーの場合は認証失敗として扱う
-      console.error('Basic auth parsing error:', error);
+      console.error('[Middleware] Basic auth parsing error:', error);
     }
+  } else {
+    console.log('[Middleware] No authorization header provided');
   }
 
   // 認証失敗: 401レスポンスを返す
