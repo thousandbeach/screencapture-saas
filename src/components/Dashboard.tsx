@@ -60,7 +60,7 @@ const formatTime = (date: Date) => {
 // Main Dashboard Component
 const Dashboard: React.FC = () => {
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
-  const [favorites] = useState<FavoriteSite[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteSite[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [stats, setStats] = useState({
     monthlyCaptures: 0,
@@ -73,6 +73,11 @@ const Dashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [historyLimit, setHistoryLimit] = useState(10);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [captureSettings, setCaptureSettings] = useState<CaptureSettings>({
     devices: ['desktop'],
     maxPages: 1,
@@ -98,22 +103,83 @@ const Dashboard: React.FC = () => {
     }
   }, [darkMode]);
 
+  // お気に入りをロード
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchFavorites = async () => {
+      const { data, error } = await supabase
+        .from('favorite_sites')
+        .select('id, url, title, settings')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching favorites:', error);
+        return;
+      }
+
+      if (data) {
+        // 各お気に入りの使用回数を並行取得
+        const favoritesWithCount = await Promise.all(
+          data.map(async (item) => {
+            const { count } = await supabase
+              .from('capture_history')
+              .select('*', { count: 'exact', head: true })
+              .eq('user_id', user.id)
+              .eq('base_url', item.url);
+
+            return {
+              id: item.id,
+              url: item.url,
+              title: item.title || new URL(item.url).hostname,
+              captureCount: count || 0,
+              settings: item.settings as CaptureSettings | undefined,
+            };
+          })
+        );
+
+        setFavorites(favoritesWithCount);
+      }
+    };
+
+    fetchFavorites();
+  }, [user]);
+
   // 取得履歴をロード
   useEffect(() => {
     if (!user) return;
 
     const fetchHistory = async () => {
-      const { data, error } = await supabase
+      console.log('[History] Fetching history for user:', user.id, 'limit:', historyLimit, 'search:', searchQuery);
+
+      // クエリ構築
+      let query = supabase
         .from('capture_history')
         .select('id, base_url, page_count, created_at')
-        .eq('user_id', user.id)
+        .eq('user_id', user.id);
+
+      // 検索フィルター適用
+      if (searchQuery) {
+        query = query.ilike('base_url', `%${searchQuery}%`);
+      }
+
+      const { data, error} = await query
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(historyLimit);
 
       if (error) {
-        console.error('Error fetching history:', error);
+        console.error('[History] Error fetching history:', {
+          error,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+          errorCode: error.code,
+        });
         return;
       }
+
+      console.log('[History] Fetched history data:', data);
 
       if (data) {
         setHistory(
@@ -124,10 +190,66 @@ const Dashboard: React.FC = () => {
             capturedAt: new Date(item.created_at),
           }))
         );
+
+        // 取得したデータ数がlimit未満なら、これ以上データがない
+        setHasMoreHistory(data.length >= historyLimit);
       }
     };
 
     fetchHistory();
+  }, [user, historyLimit, searchQuery]);
+
+  // アクティブプロジェクトをロード（ページロード時）
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchActiveProjects = async () => {
+      console.log('[ActiveProjects] Fetching active projects for user:', user.id);
+
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('active_projects')
+        .select('id, history_id, user_id, status, progress, expires_at, download_count')
+        .eq('user_id', user.id)
+        .gt('expires_at', now) // 期限切れでないもののみ
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('[ActiveProjects] Error fetching active projects:', error);
+        return;
+      }
+
+      console.log('[ActiveProjects] Fetched projects:', data);
+
+      if (data && data.length > 0) {
+        // 各プロジェクトのhistory情報を取得
+        const projectsWithHistory = await Promise.all(
+          data.map(async (project) => {
+            const { data: historyData } = await supabase
+              .from('capture_history')
+              .select('base_url, page_count, metadata')
+              .eq('id', project.history_id)
+              .single();
+
+            return {
+              id: project.id,
+              url: historyData?.base_url || 'Unknown',
+              pageCount: historyData?.page_count || 0,
+              devices: historyData?.metadata?.devices || ['desktop'],
+              status: project.status,
+              progress: project.progress,
+              expiresAt: new Date(project.expires_at),
+              downloadCount: project.download_count,
+            } as ActiveProject;
+          })
+        );
+
+        console.log('[ActiveProjects] Projects with history:', projectsWithHistory);
+        setActiveProjects(projectsWithHistory);
+      }
+    };
+
+    fetchActiveProjects();
   }, [user]);
 
   // 統計データをロード
@@ -301,7 +423,8 @@ const Dashboard: React.FC = () => {
           url,
           options: {
             devices: captureSettings.devices,
-            max_pages: captureSettings.allPages ? 999 : captureSettings.maxPages,
+            max_pages: captureSettings.allPages ? 300 : captureSettings.maxPages,
+            all_pages: captureSettings.allPages,
             exclude_popups: captureSettings.excludePopups,
           },
         }),
@@ -332,14 +455,190 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleRecapture = (historyId: string) => {
-    console.log('Recapturing:', historyId);
-    // Implementation here
+  const handleRecapture = async (historyId: string) => {
+    try {
+      console.log('[Recapture] Starting recapture for history:', historyId);
+
+      // 履歴データを取得
+      const { data: historyData, error: historyError } = await supabase
+        .from('capture_history')
+        .select('base_url, metadata')
+        .eq('id', historyId)
+        .single();
+
+      if (historyError || !historyData) {
+        console.error('[Recapture] Error fetching history:', historyError);
+        alert('履歴データの取得に失敗しました');
+        return;
+      }
+
+      console.log('[Recapture] History data:', historyData);
+
+      // 元の設定を取得
+      const metadata = historyData.metadata as any;
+      const devices = metadata?.devices || ['desktop'];
+      const maxPages = metadata?.max_pages || 1;
+      const allPages = metadata?.all_pages || false;
+      const excludePopups = metadata?.exclude_popups !== false; // デフォルトtrue
+
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('ログインが必要です');
+        return;
+      }
+
+      // API呼び出し
+      const response = await fetch('/api/capture', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          url: historyData.base_url,
+          options: {
+            devices: devices,
+            max_pages: maxPages,
+            all_pages: allPages,
+            exclude_popups: excludePopups,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'スクリーンショット取得に失敗しました');
+      }
+
+      // 成功
+      console.log('[Recapture] Screenshot request successful, project_id:', data.project_id);
+      alert('スクリーンショット再取得を開始しました！\nリアルタイムで進捗が更新されます。');
+
+    } catch (error) {
+      console.error('[Recapture] Error:', error);
+      alert(error instanceof Error ? error.message : '再取得に失敗しました');
+    }
   };
 
-  const handleFavoriteClick = (favoriteId: string) => {
-    console.log('Running favorite:', favoriteId);
-    // Implementation here
+  const handleFavoriteClick = async (favoriteId: string) => {
+    const favorite = favorites.find(f => f.id === favoriteId);
+    if (!favorite) return;
+
+    // お気に入りの設定を現在のフォームに適用
+    setUrl(favorite.url);
+    if (favorite.settings) {
+      setCaptureSettings({
+        devices: favorite.settings.devices,
+        maxPages: favorite.settings.maxPages,
+        allPages: favorite.settings.allPages,
+        excludePopups: favorite.settings.excludePopups,
+      });
+    }
+  };
+
+  const handleAddToFavorites = async (targetUrl?: string) => {
+    const urlToAdd = targetUrl || url;
+
+    if (!user || !urlToAdd) {
+      alert('URLを入力してください');
+      return;
+    }
+
+    const customName = prompt('お気に入りの名前を入力（空欄でURLを使用）:');
+    if (customName === null) return; // キャンセル
+
+    const { error } = await supabase
+      .from('favorite_sites')
+      .insert({
+        user_id: user.id,
+        url: urlToAdd,
+        title: customName || null,
+        settings: {
+          devices: captureSettings.devices,
+          maxPages: captureSettings.maxPages,
+          allPages: captureSettings.allPages,
+          excludePopups: captureSettings.excludePopups,
+        },
+      });
+
+    if (error) {
+      console.error('Error adding favorite:', error);
+      alert('お気に入りの追加に失敗しました');
+      return;
+    }
+
+    // リストを再取得
+    const { data } = await supabase
+      .from('favorite_sites')
+      .select('id, url, title, settings')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      // 各お気に入りの使用回数を並行取得
+      const favoritesWithCount = await Promise.all(
+        data.map(async (item) => {
+          const { count } = await supabase
+            .from('capture_history')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('base_url', item.url);
+
+          return {
+            id: item.id,
+            url: item.url,
+            title: item.title || new URL(item.url).hostname,
+            captureCount: count || 0,
+            settings: item.settings as CaptureSettings | undefined,
+          };
+        })
+      );
+
+      setFavorites(favoritesWithCount);
+    }
+  };
+
+  // ドラッグ&ドロップハンドラー
+  const handleDragStart = (e: React.DragEvent, url: string) => {
+    e.dataTransfer.setData('text/plain', url);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+
+    const droppedUrl = e.dataTransfer.getData('text/plain');
+    if (droppedUrl) {
+      await handleAddToFavorites(droppedUrl);
+    }
+  };
+
+  // URL入力欄へのドロップハンドラー
+  const handleDropOnUrlInput = (e: React.DragEvent) => {
+    e.preventDefault();
+    const droppedUrl = e.dataTransfer.getData('text/plain');
+    if (droppedUrl) {
+      // 既存のURLを置き換え（現在は単一URL仕様）
+      setUrl(droppedUrl);
+    }
+  };
+
+  const handleDragOverUrlInput = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
   };
 
   const handleDownload = async (projectId: string) => {
@@ -481,6 +780,8 @@ const Dashboard: React.FC = () => {
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   onKeyPress={handleKeyPress}
+                  onDragOver={handleDragOverUrlInput}
+                  onDrop={handleDropOnUrlInput}
                   placeholder="https://example.com"
                   className={`flex-1 px-3 py-2 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 ${
                     darkMode ? 'text-gray-100 border-gray-600' : 'text-gray-900 border-gray-300'
@@ -566,7 +867,7 @@ const Dashboard: React.FC = () => {
                   ダウンロード可能
                 </h2>
                 <span className="text-xs gradient-secondary text-white px-2 py-1 rounded-full">
-                  24時間限定
+                  最大48時間
                 </span>
               </div>
               <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>取得済みのプロジェクト</p>
@@ -591,7 +892,10 @@ const Dashboard: React.FC = () => {
                   <Star className="h-5 w-5 mr-2 text-yellow-500" />
                   お気に入り
                 </h2>
-                <button className="text-sm text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => handleAddToFavorites()}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
@@ -606,14 +910,21 @@ const Dashboard: React.FC = () => {
                   darkMode={darkMode}
                 />
               ))}
-              <button className={`w-full p-3 rounded-lg border-2 border-dashed transition-colors ${
-                darkMode
+              <button
+                onClick={() => handleAddToFavorites()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`w-full p-3 rounded-lg border-2 border-dashed transition-colors ${
+                isDraggingOver
+                  ? 'border-blue-500 bg-blue-100/20 scale-105'
+                  : darkMode
                   ? 'border-gray-600 hover:border-blue-400 hover:bg-gray-800/50'
                   : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
               }`}>
-                <div className={`text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                <div className={`text-center ${isDraggingOver ? 'text-blue-500' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   <Plus className="h-6 w-6 mx-auto mb-2" />
-                  <p className="text-sm">お気に入りを追加</p>
+                  <p className="text-sm">{isDraggingOver ? 'ドロップして追加' : 'お気に入りを追加'}</p>
                 </div>
               </button>
             </div>
@@ -627,26 +938,74 @@ const Dashboard: React.FC = () => {
                   <Clock className="h-5 w-5 mr-2 text-blue-600" />
                   取得履歴
                 </h2>
-                <button className="text-sm text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => setIsSearchVisible(!isSearchVisible)}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
                   <Search className="h-4 w-4" />
                 </button>
               </div>
               <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>過去のキャプチャ（永続保存）</p>
+
+              {/* Search Input */}
+              {isSearchVisible && (
+                <div className="mt-3">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setHistoryLimit(10); // 検索時は最初の10件にリセット
+                      }}
+                      placeholder="URLで検索..."
+                      className={`w-full px-3 py-2 pl-9 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 text-sm ${
+                        darkMode ? 'text-gray-100 border-gray-600' : 'text-gray-900 border-gray-300'
+                      }`}
+                    />
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-200/50 ${
+                          darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
-              {history.map((item) => (
-                <HistoryCard
-                  key={item.id}
-                  item={item}
-                  onRecapture={handleRecapture}
-                  darkMode={darkMode}
-                />
-              ))}
-              <button className={`w-full mt-4 p-2 text-sm text-blue-600 rounded transition-colors ${
-                darkMode ? 'hover:bg-gray-800/50' : 'hover:bg-blue-50'
-              }`}>
-                もっと見る
-              </button>
+              {history.length === 0 && searchQuery ? (
+                <div className="text-center py-8">
+                  <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    検索結果が見つかりませんでした
+                  </p>
+                </div>
+              ) : (
+                history.map((item) => (
+                  <HistoryCard
+                    key={item.id}
+                    item={item}
+                    onRecapture={handleRecapture}
+                    onDragStart={handleDragStart}
+                    darkMode={darkMode}
+                  />
+                ))
+              )}
+              {hasMoreHistory && (
+                <button
+                  onClick={() => setHistoryLimit(prev => prev + 10)}
+                  className={`w-full mt-4 p-2 text-sm text-blue-600 rounded transition-colors ${
+                    darkMode ? 'hover:bg-gray-800/50' : 'hover:bg-blue-50'
+                  }`}
+                >
+                  もっと見る
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -734,7 +1093,7 @@ const ActiveProjectCard: React.FC<{
         {project.status === 'processing' ? (
           <div className={`flex items-center text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            <span>{Math.floor(project.progress * project.pageCount / 100)}/{project.pageCount} ページ完了</span>
+            <span>{project.progress}% 完了</span>
           </div>
         ) : (
           <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -757,11 +1116,12 @@ const ActiveProjectCard: React.FC<{
         <div
           className={`h-1.5 rounded-full transition-all duration-300 ${
             project.status === 'processing' ? 'gradient-animated' :
+            project.status === 'completed' ? 'bg-gradient-to-r from-green-400 to-emerald-500' :
             isUrgent ? 'bg-gradient-to-r from-red-500 to-pink-500' :
             isWarning ? 'bg-gradient-to-r from-orange-400 to-yellow-500' :
             'bg-gradient-to-r from-green-400 to-emerald-500'
           }`}
-          style={{ width: `${project.status === 'processing' ? project.progress : (timeLeft / 24) * 100}%` }}
+          style={{ width: `${project.status === 'processing' ? project.progress : project.status === 'completed' ? 100 : (timeLeft / 24) * 100}%` }}
         />
       </div>
     </div>
@@ -817,12 +1177,17 @@ const FavoriteCard: React.FC<{
 const HistoryCard: React.FC<{
   item: HistoryItem;
   onRecapture: (id: string) => void;
+  onDragStart: (e: React.DragEvent, url: string) => void;
   darkMode: boolean;
-}> = ({ item, onRecapture, darkMode }) => {
+}> = ({ item, onRecapture, onDragStart, darkMode }) => {
   return (
-    <div className={`group flex items-center justify-between p-2 rounded glass transition-all ${
-      darkMode ? 'hover:bg-gray-700/30' : 'hover:bg-gray-200/40'
-    }`}>
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, item.url)}
+      className={`group flex items-center justify-between p-2 rounded glass transition-all cursor-move ${
+        darkMode ? 'hover:bg-gray-700/30' : 'hover:bg-gray-200/40'
+      }`}
+    >
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-medium truncate ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>{item.url}</p>
         <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -953,7 +1318,7 @@ const AlertBanner: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             無料サービスについて
           </p>
           <p className={`text-sm mt-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-            スクリーンショットは24時間で自動削除されます。必要な画像は早めにダウンロードしてください。
+            スクリーンショットは最大48時間で自動削除されます。必要な画像は早めにダウンロードしてください。
             履歴データは永続的に保存されるため、いつでも再取得可能です。
           </p>
         </div>
