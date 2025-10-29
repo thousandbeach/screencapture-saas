@@ -19,6 +19,9 @@ export function PreviewAuth({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    console.log('[PreviewAuth] NODE_ENV:', process.env.NODE_ENV);
+    console.log('[PreviewAuth] Has NEXT_PUBLIC_PREVIEW_PASSWORD:', !!process.env.NEXT_PUBLIC_PREVIEW_PASSWORD);
+
     // ローカル開発環境のみ認証をスキップ
     if (process.env.NODE_ENV === 'development') {
       setIsAuthenticated(true);
@@ -38,10 +41,8 @@ export function PreviewAuth({ children }: { children: React.ReactNode }) {
     e.preventDefault();
     setError('');
 
-    // 認証チェック
-    const expectedPassword = process.env.NEXT_PUBLIC_PREVIEW_PASSWORD;
-
-    if (username === 'preview' && password === expectedPassword) {
+    // 認証チェック（ハードコード）
+    if (username === 'preview' && password === 'MySecurePass123!') {
       // 認証成功
       sessionStorage.setItem('preview-auth', 'verified');
       setIsAuthenticated(true);
