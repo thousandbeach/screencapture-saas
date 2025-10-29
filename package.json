@@ -17,6 +17,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.344.0",
     "next": "^15.1.6",
+    "puppeteer": "^24.26.1",
     "puppeteer-core": "^24.26.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
