@@ -41,7 +41,7 @@ export const Welcome = ({
             📱 マルチデバイス対応（デスクトップ/タブレット/モバイル）
           </Text>
           <Text style={featureItem}>
-            📦 24時間限定でZIPダウンロード可能
+            📦 最大48時間限定でZIPダウンロード可能
           </Text>
           <Text style={featureItem}>
             ⭐ お気に入りサイトからワンクリック再実行
@@ -58,7 +58,7 @@ export const Welcome = ({
         </Section>
 
         <Text style={note}>
-          💡 ヒント: 取得した画像は24時間でサーバーから自動削除されますが、
+          💡 ヒント: 取得した画像は最大48時間でサーバーから自動削除されますが、
           履歴は永久に保存されるため、いつでも再実行できます。
         </Text>
 

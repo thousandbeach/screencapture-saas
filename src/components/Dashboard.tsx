@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useDarkMode } from '@/stores/useDarkMode';
 import { useAuth } from '@/stores/useAuth';
+import { supabase } from '@/lib/supabase';
 
 // Types
 interface ActiveProject {
@@ -27,11 +28,7 @@ interface FavoriteSite {
   url: string;
   title: string;
   captureCount: number;
-  settings?: {
-    allPages: boolean;
-    devices: string[];
-    excludePopups: boolean;
-  };
+  settings?: CaptureSettings;
 }
 
 interface HistoryItem {
@@ -39,6 +36,13 @@ interface HistoryItem {
   url: string;
   pageCount: number;
   capturedAt: Date;
+}
+
+interface CaptureSettings {
+  devices: string[];
+  maxPages: number;
+  allPages: boolean;
+  excludePopups: boolean;
 }
 
 // Utility functions
@@ -55,81 +59,31 @@ const formatTime = (date: Date) => {
 
 // Main Dashboard Component
 const Dashboard: React.FC = () => {
-  const [activeProjects] = useState<ActiveProject[]>([
-    {
-      id: '1',
-      url: 'https://example.com',
-      pageCount: 300,
-      devices: ['desktop', 'mobile', 'tablet'],
-      status: 'completed',
-      progress: 100,
-      expiresAt: new Date(Date.now() + 18 * 60 * 60 * 1000),
-      downloadCount: 0
-    },
-    {
-      id: '2',
-      url: 'https://blog.example.jp',
-      pageCount: 150,
-      devices: ['desktop', 'mobile', 'tablet'],
-      status: 'processing',
-      progress: 30,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      downloadCount: 0
-    },
-    {
-      id: '3',
-      url: 'https://shop.example.com',
-      pageCount: 50,
-      devices: ['desktop'],
-      status: 'completed',
-      progress: 100,
-      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-      downloadCount: 1
-    }
-  ]);
-
-  const [favorites] = useState<FavoriteSite[]>([
-    {
-      id: '1',
-      url: 'company.com',
-      title: '会社HP',
-      captureCount: 28
-    },
-    {
-      id: '2',
-      url: 'shop.example.com',
-      title: 'ECサイト',
-      captureCount: 15
-    },
-    {
-      id: '3',
-      url: 'blog.example.jp',
-      title: 'ブログ',
-      captureCount: 12
-    },
-    {
-      id: '4',
-      url: 'competitor-a.com',
-      title: '競合サイトA',
-      captureCount: 8,
-      settings: {
-        allPages: true,
-        devices: ['desktop', 'mobile', 'tablet'],
-        excludePopups: true
-      }
-    }
-  ]);
-
-  const [history] = useState<HistoryItem[]>([
-    { id: '1', url: 'example.com', pageCount: 50, capturedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) },
-    { id: '2', url: 'docs.google.com', pageCount: 1, capturedAt: new Date(Date.now() - 5 * 60 * 60 * 1000) },
-    { id: '3', url: 'github.com/project', pageCount: 25, capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-    { id: '4', url: 'stackoverflow.com', pageCount: 3, capturedAt: new Date(Date.now() - 30 * 60 * 60 * 1000) },
-    { id: '5', url: 'aws.amazon.com', pageCount: 120, capturedAt: new Date(Date.now() - 72 * 60 * 60 * 1000) }
-  ]);
+  const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteSite[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [stats, setStats] = useState({
+    monthlyCaptures: 0,
+    totalPages: 0,
+    favoritesCount: 0,
+    storageUsage: 0,
+  });
 
   const [url, setUrl] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [historyLimit, setHistoryLimit] = useState(10);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [captureSettings, setCaptureSettings] = useState<CaptureSettings>({
+    devices: ['desktop'],
+    maxPages: 1,
+    allPages: false,
+    excludePopups: true, // デフォルトでポップアップを除外
+  });
   const { darkMode, toggleDarkMode } = useDarkMode();
   const { user, signOut } = useAuth();
 
@@ -149,31 +103,595 @@ const Dashboard: React.FC = () => {
     }
   }, [darkMode]);
 
-  const handleCapture = () => {
-    if (!url) return;
-    console.log('Capturing:', url);
-    // Implementation here
+  // お気に入りをロード
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchFavorites = async () => {
+      const { data, error } = await supabase
+        .from('favorite_sites')
+        .select('id, url, title, settings')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching favorites:', error);
+        return;
+      }
+
+      if (data) {
+        // 各お気に入りの使用回数を並行取得
+        const favoritesWithCount = await Promise.all(
+          data.map(async (item) => {
+            const { count } = await supabase
+              .from('capture_history')
+              .select('*', { count: 'exact', head: true })
+              .eq('user_id', user.id)
+              .eq('base_url', item.url);
+
+            return {
+              id: item.id,
+              url: item.url,
+              title: item.title || new URL(item.url).hostname,
+              captureCount: count || 0,
+              settings: item.settings as CaptureSettings | undefined,
+            };
+          })
+        );
+
+        setFavorites(favoritesWithCount);
+      }
+    };
+
+    fetchFavorites();
+  }, [user]);
+
+  // 取得履歴をロード
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchHistory = async () => {
+      console.log('[History] Fetching history for user:', user.id, 'limit:', historyLimit, 'search:', searchQuery);
+
+      // クエリ構築
+      let query = supabase
+        .from('capture_history')
+        .select('id, base_url, page_count, created_at')
+        .eq('user_id', user.id);
+
+      // 検索フィルター適用
+      if (searchQuery) {
+        query = query.ilike('base_url', `%${searchQuery}%`);
+      }
+
+      const { data, error} = await query
+        .order('created_at', { ascending: false })
+        .limit(historyLimit);
+
+      if (error) {
+        console.error('[History] Error fetching history:', {
+          error,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+          errorCode: error.code,
+        });
+        return;
+      }
+
+      console.log('[History] Fetched history data:', data);
+
+      if (data) {
+        setHistory(
+          data.map((item) => ({
+            id: item.id,
+            url: item.base_url,
+            pageCount: item.page_count,
+            capturedAt: new Date(item.created_at),
+          }))
+        );
+
+        // 取得したデータ数がlimit未満なら、これ以上データがない
+        setHasMoreHistory(data.length >= historyLimit);
+      }
+    };
+
+    fetchHistory();
+  }, [user, historyLimit, searchQuery]);
+
+  // アクティブプロジェクトをロード（ページロード時）
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchActiveProjects = async () => {
+      console.log('[ActiveProjects] Fetching active projects for user:', user.id);
+
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('active_projects')
+        .select('id, history_id, user_id, status, progress, expires_at, download_count')
+        .eq('user_id', user.id)
+        .gt('expires_at', now) // 期限切れでないもののみ
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('[ActiveProjects] Error fetching active projects:', error);
+        return;
+      }
+
+      console.log('[ActiveProjects] Fetched projects:', data);
+
+      if (data && data.length > 0) {
+        // 各プロジェクトのhistory情報を取得
+        const projectsWithHistory = await Promise.all(
+          data.map(async (project) => {
+            const { data: historyData } = await supabase
+              .from('capture_history')
+              .select('base_url, page_count, metadata')
+              .eq('id', project.history_id)
+              .single();
+
+            return {
+              id: project.id,
+              url: historyData?.base_url || 'Unknown',
+              pageCount: historyData?.page_count || 0,
+              devices: historyData?.metadata?.devices || ['desktop'],
+              status: project.status,
+              progress: project.progress,
+              expiresAt: new Date(project.expires_at),
+              downloadCount: project.download_count,
+            } as ActiveProject;
+          })
+        );
+
+        console.log('[ActiveProjects] Projects with history:', projectsWithHistory);
+        setActiveProjects(projectsWithHistory);
+      }
+    };
+
+    fetchActiveProjects();
+  }, [user]);
+
+  // 統計データをロード
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchStats = async () => {
+      // 今月の取得回数
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { count: monthlyCount } = await supabase
+        .from('capture_history')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .gte('created_at', startOfMonth.toISOString());
+
+      // 総ページ数
+      const { data: historyData } = await supabase
+        .from('capture_history')
+        .select('page_count')
+        .eq('user_id', user.id);
+
+      const totalPages = historyData?.reduce((sum, item) => sum + (item.page_count || 0), 0) || 0;
+
+      setStats({
+        monthlyCaptures: monthlyCount || 0,
+        totalPages: totalPages,
+        favoritesCount: favorites.length,
+        storageUsage: 0, // TODO: ストレージ使用率は後で実装
+      });
+    };
+
+    fetchStats();
+  }, [user, favorites.length]);
+
+  // Supabase Realtime: active_projectsの変更を購読
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('[Realtime] Setting up subscription for user:', user.id);
+
+    const channel = supabase
+      .channel('active_projects_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'active_projects',
+          filter: `user_id=eq.${user.id}`, // 現在のユーザーのプロジェクトのみ購読
+        },
+        (payload) => {
+          console.log('[Realtime] Event received (ALL):', payload);
+
+          if (payload.eventType === 'INSERT') {
+            // 新しいプロジェクトを追加 - history情報を取得する必要がある
+            const newProject = payload.new as any;
+            console.log('[Realtime] INSERT event - new project:', newProject);
+
+            // セキュリティチェック: user_idが一致することを確認
+            if (newProject.user_id !== user.id) {
+              console.warn('[Realtime] Ignoring project from different user');
+              return;
+            }
+
+            // history情報を取得
+            (async () => {
+              const { data: historyData } = await supabase
+                .from('capture_history')
+                .select('base_url, page_count, metadata, created_at')
+                .eq('id', newProject.history_id)
+                .single();
+
+              console.log('[Realtime] Fetched history data:', historyData);
+
+              // active_projectsに追加
+              setActiveProjects((prev) => [
+                {
+                  id: newProject.id,
+                  url: historyData?.base_url || 'Unknown',
+                  pageCount: historyData?.page_count || 0,
+                  devices: historyData?.metadata?.devices || ['desktop'],
+                  status: newProject.status,
+                  progress: newProject.progress,
+                  expiresAt: new Date(newProject.expires_at),
+                  downloadCount: newProject.download_count,
+                },
+                ...prev,
+              ]);
+
+              // 履歴にも追加
+              if (historyData) {
+                setHistory((prev) => [
+                  {
+                    id: newProject.history_id,
+                    url: historyData.base_url,
+                    pageCount: historyData.page_count,
+                    capturedAt: new Date(historyData.created_at),
+                  },
+                  ...prev,
+                ]);
+              }
+            })();
+          } else if (payload.eventType === 'UPDATE') {
+            // プロジェクトを更新
+            const updatedProject = payload.new as any;
+            console.log('[Realtime] UPDATE event - updated project:', updatedProject);
+            setActiveProjects((prev) =>
+              prev.map((project) =>
+                project.id === updatedProject.id
+                  ? {
+                      ...project,
+                      status: updatedProject.status,
+                      progress: updatedProject.progress,
+                    }
+                  : project
+              )
+            );
+          } else if (payload.eventType === 'DELETE') {
+            // プロジェクトを削除
+            const deletedProject = payload.old as any;
+            console.log('[Realtime] DELETE event - deleted project:', deletedProject);
+            setActiveProjects((prev) =>
+              prev.filter((project) => project.id !== deletedProject.id)
+            );
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Subscription status:', status);
+      });
+
+    // クリーンアップ
+    return () => {
+      console.log('[Realtime] Cleaning up subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  const handleCapture = async () => {
+    if (!url || isCapturing) return;
+
+    try {
+      setIsCapturing(true);
+
+      // URLバリデーション
+      try {
+        new URL(url);
+      } catch {
+        alert('有効なURLを入力してください');
+        return;
+      }
+
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('ログインが必要です');
+        return;
+      }
+
+      // API呼び出し
+      const response = await fetch('/api/capture', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          url,
+          options: {
+            devices: captureSettings.devices,
+            max_pages: captureSettings.allPages ? 300 : captureSettings.maxPages,
+            all_pages: captureSettings.allPages,
+            exclude_popups: captureSettings.excludePopups,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'スクリーンショット取得に失敗しました');
+      }
+
+      // 成功 - Realtimeが自動的にプロジェクトを追加するのを待つ
+      console.log('[Capture] Screenshot request successful, project_id:', data.project_id);
+      alert('スクリーンショット取得を開始しました！\nリアルタイムで進捗が更新されます。');
+      setUrl(''); // URLクリア
+
+    } catch (error) {
+      console.error('Capture error:', error);
+      alert(error instanceof Error ? error.message : 'エラーが発生しました');
+    } finally {
+      setIsCapturing(false);
+    }
   };
 
-  const handleRecapture = (historyId: string) => {
-    console.log('Recapturing:', historyId);
-    // Implementation here
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleCapture();
+    }
   };
 
-  const handleFavoriteClick = (favoriteId: string) => {
-    console.log('Running favorite:', favoriteId);
-    // Implementation here
+  const handleRecapture = async (historyId: string) => {
+    try {
+      console.log('[Recapture] Starting recapture for history:', historyId);
+
+      // 履歴データを取得
+      const { data: historyData, error: historyError } = await supabase
+        .from('capture_history')
+        .select('base_url, metadata')
+        .eq('id', historyId)
+        .single();
+
+      if (historyError || !historyData) {
+        console.error('[Recapture] Error fetching history:', historyError);
+        alert('履歴データの取得に失敗しました');
+        return;
+      }
+
+      console.log('[Recapture] History data:', historyData);
+
+      // 元の設定を取得
+      const metadata = historyData.metadata as any;
+      const devices = metadata?.devices || ['desktop'];
+      const maxPages = metadata?.max_pages || 1;
+      const allPages = metadata?.all_pages || false;
+      const excludePopups = metadata?.exclude_popups !== false; // デフォルトtrue
+
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('ログインが必要です');
+        return;
+      }
+
+      // API呼び出し
+      const response = await fetch('/api/capture', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          url: historyData.base_url,
+          options: {
+            devices: devices,
+            max_pages: maxPages,
+            all_pages: allPages,
+            exclude_popups: excludePopups,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'スクリーンショット取得に失敗しました');
+      }
+
+      // 成功
+      console.log('[Recapture] Screenshot request successful, project_id:', data.project_id);
+      alert('スクリーンショット再取得を開始しました！\nリアルタイムで進捗が更新されます。');
+
+    } catch (error) {
+      console.error('[Recapture] Error:', error);
+      alert(error instanceof Error ? error.message : '再取得に失敗しました');
+    }
   };
 
-  const handleDownload = (projectId: string) => {
-    console.log('Downloading:', projectId);
-    // Implementation here
+  const handleFavoriteClick = async (favoriteId: string) => {
+    const favorite = favorites.find(f => f.id === favoriteId);
+    if (!favorite) return;
+
+    // お気に入りの設定を現在のフォームに適用
+    setUrl(favorite.url);
+    if (favorite.settings) {
+      setCaptureSettings({
+        devices: favorite.settings.devices,
+        maxPages: favorite.settings.maxPages,
+        allPages: favorite.settings.allPages,
+        excludePopups: favorite.settings.excludePopups,
+      });
+    }
+  };
+
+  const handleAddToFavorites = async (targetUrl?: string) => {
+    const urlToAdd = targetUrl || url;
+
+    if (!user || !urlToAdd) {
+      alert('URLを入力してください');
+      return;
+    }
+
+    const customName = prompt('お気に入りの名前を入力（空欄でURLを使用）:');
+    if (customName === null) return; // キャンセル
+
+    const { error } = await supabase
+      .from('favorite_sites')
+      .insert({
+        user_id: user.id,
+        url: urlToAdd,
+        title: customName || null,
+        settings: {
+          devices: captureSettings.devices,
+          maxPages: captureSettings.maxPages,
+          allPages: captureSettings.allPages,
+          excludePopups: captureSettings.excludePopups,
+        },
+      });
+
+    if (error) {
+      console.error('Error adding favorite:', error);
+      alert('お気に入りの追加に失敗しました');
+      return;
+    }
+
+    // リストを再取得
+    const { data } = await supabase
+      .from('favorite_sites')
+      .select('id, url, title, settings')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      // 各お気に入りの使用回数を並行取得
+      const favoritesWithCount = await Promise.all(
+        data.map(async (item) => {
+          const { count } = await supabase
+            .from('capture_history')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('base_url', item.url);
+
+          return {
+            id: item.id,
+            url: item.url,
+            title: item.title || new URL(item.url).hostname,
+            captureCount: count || 0,
+            settings: item.settings as CaptureSettings | undefined,
+          };
+        })
+      );
+
+      setFavorites(favoritesWithCount);
+    }
+  };
+
+  // ドラッグ&ドロップハンドラー
+  const handleDragStart = (e: React.DragEvent, url: string) => {
+    e.dataTransfer.setData('text/plain', url);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+
+    const droppedUrl = e.dataTransfer.getData('text/plain');
+    if (droppedUrl) {
+      await handleAddToFavorites(droppedUrl);
+    }
+  };
+
+  // URL入力欄へのドロップハンドラー
+  const handleDropOnUrlInput = (e: React.DragEvent) => {
+    e.preventDefault();
+    const droppedUrl = e.dataTransfer.getData('text/plain');
+    if (droppedUrl) {
+      // 既存のURLを置き換え（現在は単一URL仕様）
+      setUrl(droppedUrl);
+    }
+  };
+
+  const handleDragOverUrlInput = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDownload = async (projectId: string) => {
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('ログインが必要です');
+        return;
+      }
+
+      // ダウンロードAPI呼び出し
+      const response = await fetch(`/api/download?project_id=${projectId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'ダウンロードに失敗しました');
+      }
+
+      // Blobとしてダウンロード
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `screenshots_${projectId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      // ダウンロード回数を更新（Realtimeで自動更新される）
+      console.log('[Download] Successfully downloaded project:', projectId);
+    } catch (error) {
+      console.error('Download error:', error);
+      alert(error instanceof Error ? error.message : 'ダウンロードに失敗しました');
+    }
   };
 
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} darkMode={darkMode} />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        darkMode={darkMode}
+        activeProjectsCount={activeProjects.filter(p => p.status === 'completed').length}
+        favoritesCount={favorites.length}
+      />
 
       {/* Main Content Area */}
       <div
@@ -261,6 +779,9 @@ const Dashboard: React.FC = () => {
                   type="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  onDragOver={handleDragOverUrlInput}
+                  onDrop={handleDropOnUrlInput}
                   placeholder="https://example.com"
                   className={`flex-1 px-3 py-2 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 ${
                     darkMode ? 'text-gray-100 border-gray-600' : 'text-gray-900 border-gray-300'
@@ -268,19 +789,34 @@ const Dashboard: React.FC = () => {
                 />
                 <button
                   onClick={handleCapture}
-                  className="px-4 py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-all flex items-center"
+                  disabled={isCapturing || !url}
+                  className={`px-4 py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-all flex items-center ${
+                    (isCapturing || !url) ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 >
-                  <Camera className="h-4 w-4 mr-2" />
-                  取得開始
+                  {isCapturing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      処理中...
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-4 w-4 mr-2" />
+                      取得開始
+                    </>
+                  )}
                 </button>
               </div>
             </div>
             <div className="flex items-end gap-2">
-              <button className={`px-3 py-2 rounded-lg transition-all flex items-center ${
-                darkMode
-                  ? 'bg-gray-700/70 text-gray-100 hover:bg-gray-600/70 border border-gray-600'
-                  : 'bg-white/70 text-gray-900 hover:bg-white/90 border border-gray-300'
-              }`}>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className={`px-3 py-2 rounded-lg transition-all flex items-center ${
+                  darkMode
+                    ? 'bg-gray-700/70 text-gray-100 hover:bg-gray-600/70 border border-gray-600'
+                    : 'bg-white/70 text-gray-900 hover:bg-white/90 border border-gray-300'
+                }`}
+              >
                 <Settings className="h-4 w-4 mr-2" />
                 詳細設定
               </button>
@@ -292,28 +828,28 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <StatsCard
             title="今月の取得回数"
-            value="127"
+            value={stats.monthlyCaptures.toLocaleString()}
             icon={<TrendingUp />}
             color="blue"
             darkMode={darkMode}
           />
           <StatsCard
             title="総ページ数"
-            value="5,234"
+            value={stats.totalPages.toLocaleString()}
             icon={<FileImage />}
             color="green"
             darkMode={darkMode}
           />
           <StatsCard
             title="お気に入り"
-            value="12"
+            value={stats.favoritesCount.toString()}
             icon={<Star />}
             color="yellow"
             darkMode={darkMode}
           />
           <StatsCard
             title="ストレージ使用率"
-            value="23%"
+            value={`${stats.storageUsage}%`}
             icon={<Database />}
             color="purple"
             darkMode={darkMode}
@@ -331,7 +867,7 @@ const Dashboard: React.FC = () => {
                   ダウンロード可能
                 </h2>
                 <span className="text-xs gradient-secondary text-white px-2 py-1 rounded-full">
-                  24時間限定
+                  最大48時間
                 </span>
               </div>
               <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>取得済みのプロジェクト</p>
@@ -356,7 +892,10 @@ const Dashboard: React.FC = () => {
                   <Star className="h-5 w-5 mr-2 text-yellow-500" />
                   お気に入り
                 </h2>
-                <button className="text-sm text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => handleAddToFavorites()}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
@@ -371,14 +910,21 @@ const Dashboard: React.FC = () => {
                   darkMode={darkMode}
                 />
               ))}
-              <button className={`w-full p-3 rounded-lg border-2 border-dashed transition-colors ${
-                darkMode
+              <button
+                onClick={() => handleAddToFavorites()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`w-full p-3 rounded-lg border-2 border-dashed transition-colors ${
+                isDraggingOver
+                  ? 'border-blue-500 bg-blue-100/20 scale-105'
+                  : darkMode
                   ? 'border-gray-600 hover:border-blue-400 hover:bg-gray-800/50'
                   : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
               }`}>
-                <div className={`text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                <div className={`text-center ${isDraggingOver ? 'text-blue-500' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   <Plus className="h-6 w-6 mx-auto mb-2" />
-                  <p className="text-sm">お気に入りを追加</p>
+                  <p className="text-sm">{isDraggingOver ? 'ドロップして追加' : 'お気に入りを追加'}</p>
                 </div>
               </button>
             </div>
@@ -392,26 +938,74 @@ const Dashboard: React.FC = () => {
                   <Clock className="h-5 w-5 mr-2 text-blue-600" />
                   取得履歴
                 </h2>
-                <button className="text-sm text-blue-600 hover:text-blue-800">
+                <button
+                  onClick={() => setIsSearchVisible(!isSearchVisible)}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
                   <Search className="h-4 w-4" />
                 </button>
               </div>
               <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>過去のキャプチャ（永続保存）</p>
+
+              {/* Search Input */}
+              {isSearchVisible && (
+                <div className="mt-3">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setHistoryLimit(10); // 検索時は最初の10件にリセット
+                      }}
+                      placeholder="URLで検索..."
+                      className={`w-full px-3 py-2 pl-9 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-500 text-sm ${
+                        darkMode ? 'text-gray-100 border-gray-600' : 'text-gray-900 border-gray-300'
+                      }`}
+                    />
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-200/50 ${
+                          darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
-              {history.map((item) => (
-                <HistoryCard
-                  key={item.id}
-                  item={item}
-                  onRecapture={handleRecapture}
-                  darkMode={darkMode}
-                />
-              ))}
-              <button className={`w-full mt-4 p-2 text-sm text-blue-600 rounded transition-colors ${
-                darkMode ? 'hover:bg-gray-800/50' : 'hover:bg-blue-50'
-              }`}>
-                もっと見る
-              </button>
+              {history.length === 0 && searchQuery ? (
+                <div className="text-center py-8">
+                  <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    検索結果が見つかりませんでした
+                  </p>
+                </div>
+              ) : (
+                history.map((item) => (
+                  <HistoryCard
+                    key={item.id}
+                    item={item}
+                    onRecapture={handleRecapture}
+                    onDragStart={handleDragStart}
+                    darkMode={darkMode}
+                  />
+                ))
+              )}
+              {hasMoreHistory && (
+                <button
+                  onClick={() => setHistoryLimit(prev => prev + 10)}
+                  className={`w-full mt-4 p-2 text-sm text-blue-600 rounded transition-colors ${
+                    darkMode ? 'hover:bg-gray-800/50' : 'hover:bg-blue-50'
+                  }`}
+                >
+                  もっと見る
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -420,6 +1014,15 @@ const Dashboard: React.FC = () => {
         <AlertBanner darkMode={darkMode} />
       </main>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={captureSettings}
+        onSave={setCaptureSettings}
+        darkMode={darkMode}
+      />
     </div>
   );
 };
@@ -490,7 +1093,7 @@ const ActiveProjectCard: React.FC<{
         {project.status === 'processing' ? (
           <div className={`flex items-center text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            <span>{Math.floor(project.progress * project.pageCount / 100)}/{project.pageCount} ページ完了</span>
+            <span>{project.progress}% 完了</span>
           </div>
         ) : (
           <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -513,11 +1116,12 @@ const ActiveProjectCard: React.FC<{
         <div
           className={`h-1.5 rounded-full transition-all duration-300 ${
             project.status === 'processing' ? 'gradient-animated' :
+            project.status === 'completed' ? 'bg-gradient-to-r from-green-400 to-emerald-500' :
             isUrgent ? 'bg-gradient-to-r from-red-500 to-pink-500' :
             isWarning ? 'bg-gradient-to-r from-orange-400 to-yellow-500' :
             'bg-gradient-to-r from-green-400 to-emerald-500'
           }`}
-          style={{ width: `${project.status === 'processing' ? project.progress : (timeLeft / 24) * 100}%` }}
+          style={{ width: `${project.status === 'processing' ? project.progress : project.status === 'completed' ? 100 : (timeLeft / 24) * 100}%` }}
         />
       </div>
     </div>
@@ -573,12 +1177,17 @@ const FavoriteCard: React.FC<{
 const HistoryCard: React.FC<{
   item: HistoryItem;
   onRecapture: (id: string) => void;
+  onDragStart: (e: React.DragEvent, url: string) => void;
   darkMode: boolean;
-}> = ({ item, onRecapture, darkMode }) => {
+}> = ({ item, onRecapture, onDragStart, darkMode }) => {
   return (
-    <div className={`group flex items-center justify-between p-2 rounded glass transition-all ${
-      darkMode ? 'hover:bg-gray-700/30' : 'hover:bg-gray-200/40'
-    }`}>
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, item.url)}
+      className={`group flex items-center justify-between p-2 rounded glass transition-all cursor-move ${
+        darkMode ? 'hover:bg-gray-700/30' : 'hover:bg-gray-200/40'
+      }`}
+    >
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-medium truncate ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>{item.url}</p>
         <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -600,11 +1209,13 @@ const Sidebar: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   darkMode: boolean;
-}> = ({ isOpen, onClose, darkMode }) => {
+  activeProjectsCount: number;
+  favoritesCount: number;
+}> = ({ isOpen, onClose, darkMode, activeProjectsCount, favoritesCount }) => {
   const menuItems = [
     { icon: <LayoutDashboard className="h-5 w-5" />, label: 'ダッシュボード', active: true },
-    { icon: <Download className="h-5 w-5" />, label: 'ダウンロード可能', badge: '3' },
-    { icon: <Star className="h-5 w-5" />, label: 'お気に入り', badge: '12' },
+    { icon: <Download className="h-5 w-5" />, label: 'ダウンロード可能', badge: activeProjectsCount > 0 ? activeProjectsCount.toString() : undefined },
+    { icon: <Star className="h-5 w-5" />, label: 'お気に入り', badge: favoritesCount > 0 ? favoritesCount.toString() : undefined },
     { icon: <History className="h-5 w-5" />, label: '取得履歴' },
     { icon: <Database className="h-5 w-5" />, label: 'ストレージ' },
     { icon: <Settings className="h-5 w-5" />, label: '設定' },
@@ -707,7 +1318,7 @@ const AlertBanner: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             無料サービスについて
           </p>
           <p className={`text-sm mt-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-            スクリーンショットは24時間で自動削除されます。必要な画像は早めにダウンロードしてください。
+            スクリーンショットは最大48時間で自動削除されます。必要な画像は早めにダウンロードしてください。
             履歴データは永続的に保存されるため、いつでも再取得可能です。
           </p>
         </div>
@@ -719,6 +1330,239 @@ const AlertBanner: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
         </button>
       </div>
     </div>
+  );
+};
+
+// Component: Settings Modal
+const SettingsModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  settings: CaptureSettings;
+  onSave: (settings: CaptureSettings) => void;
+  darkMode: boolean;
+}> = ({ isOpen, onClose, settings, onSave, darkMode }) => {
+  const [localSettings, setLocalSettings] = useState<CaptureSettings>(settings);
+  const [maxPagesInput, setMaxPagesInput] = useState<string>(settings.maxPages.toString());
+
+  // Update local settings when prop changes
+  useEffect(() => {
+    setLocalSettings(settings);
+    setMaxPagesInput(settings.maxPages.toString());
+  }, [settings, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleDeviceToggle = (device: string) => {
+    const newDevices = localSettings.devices.includes(device)
+      ? localSettings.devices.filter(d => d !== device)
+      : [...localSettings.devices, device];
+    setLocalSettings({ ...localSettings, devices: newDevices });
+  };
+
+  const handleMaxPagesChange = (value: string) => {
+    // 数値のみ許可（マイナスなし）
+    if (value === '' || /^\d+$/.test(value)) {
+      const num = parseInt(value);
+      // 300以下のみ許可
+      if (value === '' || num <= 300) {
+        setMaxPagesInput(value);
+      }
+    }
+  };
+
+  // エラーメッセージ
+  const maxPagesError = maxPagesInput !== '' && (parseInt(maxPagesInput) < 1 || parseInt(maxPagesInput) > 300)
+    ? '1〜300の数値を入力してください'
+    : '';
+
+  const handleSave = () => {
+    // 保存前にバリデーション
+    let validSettings = { ...localSettings };
+
+    // maxPagesの範囲チェック（1-300）
+    const maxPages = maxPagesInput === '' ? 1 : parseInt(maxPagesInput);
+    if (maxPages < 1) {
+      validSettings.maxPages = 1;
+    } else if (maxPages > 300) {
+      validSettings.maxPages = 300;
+    } else {
+      validSettings.maxPages = maxPages;
+    }
+
+    onSave(validSettings);
+    onClose();
+  };
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 z-50 transition-opacity"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div
+          className="glass-strong rounded-xl shadow-2xl max-w-md w-full pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className={`flex items-center justify-between p-6 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <h2 className={`text-xl font-bold ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+              詳細設定
+            </h2>
+            <button
+              onClick={onClose}
+              className={`p-2 rounded-lg transition-colors ${
+                darkMode
+                  ? 'text-gray-400 hover:bg-gray-700'
+                  : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6 space-y-6">
+            {/* Device Selection */}
+            <div>
+              <label className={`block text-sm font-medium mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                デバイスタイプ
+              </label>
+              <div className="space-y-2">
+                {[
+                  { value: 'desktop', label: 'Desktop' },
+                  { value: 'mobile', label: 'Mobile' },
+                  { value: 'tablet', label: 'Tablet' }
+                ].map((device) => (
+                  <label
+                    key={device.value}
+                    className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                      localSettings.devices.includes(device.value)
+                        ? 'border-blue-500 bg-blue-50/10'
+                        : darkMode
+                        ? 'border-gray-600 hover:border-gray-500'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={localSettings.devices.includes(device.value)}
+                      onChange={() => handleDeviceToggle(device.value)}
+                      className="h-4 w-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className={`ml-3 text-sm font-medium ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                      {device.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Page Count Settings */}
+            <div>
+              <label className={`block text-sm font-medium mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                ページ数設定
+              </label>
+              <div className="space-y-3">
+                {/* All Pages Toggle */}
+                <label
+                  className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                    localSettings.allPages
+                      ? 'border-blue-500 bg-blue-50/10'
+                      : darkMode
+                      ? 'border-gray-600 hover:border-gray-500'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={localSettings.allPages}
+                    onChange={(e) => setLocalSettings({ ...localSettings, allPages: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className={`ml-3 text-sm font-medium ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                    全ページを取得
+                  </span>
+                </label>
+
+                {/* Max Pages Input */}
+                {!localSettings.allPages && (
+                  <div>
+                    <label className={`block text-xs font-medium mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      最大ページ数 (1-300)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="1-300"
+                      value={maxPagesInput}
+                      onChange={(e) => handleMaxPagesChange(e.target.value)}
+                      className={`w-full px-3 py-2 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                        maxPagesError
+                          ? 'border-red-500'
+                          : darkMode ? 'border-gray-600' : 'border-gray-300'
+                      } ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}
+                    />
+                    {maxPagesError && (
+                      <p className="text-xs text-red-500 mt-1">{maxPagesError}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Exclude Popups */}
+            <div>
+              <label className={`block text-sm font-medium mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                その他オプション
+              </label>
+              <label
+                className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                  localSettings.excludePopups
+                    ? 'border-blue-500 bg-blue-50/10'
+                    : darkMode
+                    ? 'border-gray-600 hover:border-gray-500'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={localSettings.excludePopups}
+                  onChange={(e) => setLocalSettings({ ...localSettings, excludePopups: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <span className={`ml-3 text-sm font-medium ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                  ポップアップを除外
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className={`flex items-center justify-end gap-3 p-6 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <button
+              onClick={onClose}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                darkMode
+                  ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 gradient-primary text-white rounded-lg font-medium hover:shadow-lg transition-all"
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 };
 
