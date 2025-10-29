@@ -34,7 +34,7 @@ export interface FavoriteSite {
 }
 
 /**
- * アクティブプロジェクトテーブル（24時間で削除）
+ * アクティブプロジェクトテーブル（最大48時間で削除）
  */
 export interface ActiveProject {
   id: string;
