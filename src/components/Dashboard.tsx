@@ -1286,17 +1286,19 @@ const Sidebar: React.FC<{
           </nav>
 
           {/* Sidebar Footer */}
-          <div className={`p-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-            <div className="flex items-center space-x-3">
-              <div className={`w-10 h-10 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium truncate ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-                  user@example.com
-                </p>
-                <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>無料プラン</p>
+          {user && (
+            <div className={`p-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center space-x-3">
+                <div className={`w-10 h-10 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium truncate ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+                    {user.email || 'user@example.com'}
+                  </p>
+                  <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>無料プラン</p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </aside>
     </>
