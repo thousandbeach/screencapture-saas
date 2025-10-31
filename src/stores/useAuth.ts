@@ -11,6 +11,7 @@ interface AuthState {
   // Actions
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   initialize: () => (() => void) | undefined;
   clearError: () => void;
@@ -80,6 +81,29 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
 
   /**
+   * Googleアカウントでログイン
+   */
+  signInWithGoogle: async () => {
+    try {
+      set({ loading: true, error: null });
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) throw error;
+
+      // OAuth認証はリダイレクトされるため、ここでloadingをfalseにする必要はない
+    } catch (error) {
+      set({ error: error as AuthError, loading: false });
+      throw error;
+    }
+  },
+
+  /**
    * ログアウト
    */
   signOut: async () => {
@@ -88,11 +112,15 @@ export const useAuth = create<AuthState>((set, get) => ({
 
       const { error } = await supabase.auth.signOut();
 
-      if (error) throw error;
+      // AuthSessionMissingErrorは無視する（既にログアウト済み）
+      if (error && error.message !== 'Auth session missing!') {
+        throw error;
+      }
 
       set({ user: null, loading: false });
     } catch (error) {
-      set({ error: error as AuthError, loading: false });
+      // セッションがない場合でもユーザーをnullに設定
+      set({ user: null, error: error as AuthError, loading: false });
       throw error;
     }
   },
