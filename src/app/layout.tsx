@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { PreviewAuth } from "@/components/auth/PreviewAuth";
 
 export const metadata: Metadata = {
   title: "ScreenCapture SaaS - Webサイトスクリーンショット取得サービス",
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <PreviewAuth>
+          <AuthProvider>{children}</AuthProvider>
+        </PreviewAuth>
       </body>
     </html>
   );
