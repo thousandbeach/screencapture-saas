@@ -1,15 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Clock, Download, Star, Globe, Play, RefreshCw, Plus,
   Settings, Search, Bell, Database, FileImage, TrendingUp,
   Loader2, AlertTriangle, Info, X, Camera, Menu,
   LayoutDashboard, History, Moon, Sun, LogOut
 } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 import { useDarkMode } from '@/stores/useDarkMode';
 import { useAuth } from '@/stores/useAuth';
 import { supabase } from '@/lib/supabase';
+import { Sidebar } from '@/components/Sidebar';
 
 // Types
 interface ActiveProject {
@@ -687,10 +690,11 @@ const Dashboard: React.FC = () => {
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        onCloseAction={() => setSidebarOpen(false)}
         darkMode={darkMode}
         activeProjectsCount={activeProjects.filter(p => p.status === 'completed').length}
         favoritesCount={favorites.length}
+        user={user}
       />
 
       {/* Main Content Area */}
@@ -725,7 +729,7 @@ const Dashboard: React.FC = () => {
                   <h1 className="text-xl font-bold">ScreenCapture</h1>
                 </div>
 
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                <span className="hidden md:inline-block text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
                   完全無料版
                 </span>
               </div>
@@ -774,7 +778,7 @@ const Dashboard: React.FC = () => {
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
                 URLを入力してスクリーンショットを取得
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="url"
                   value={url}
@@ -787,39 +791,39 @@ const Dashboard: React.FC = () => {
                     darkMode ? 'text-gray-100 border-gray-600' : 'text-gray-900 border-gray-300'
                   }`}
                 />
-                <button
-                  onClick={handleCapture}
-                  disabled={isCapturing || !url}
-                  className={`px-4 py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-all flex items-center ${
-                    (isCapturing || !url) ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  {isCapturing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      処理中...
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="h-4 w-4 mr-2" />
-                      取得開始
-                    </>
-                  )}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCapture}
+                    disabled={isCapturing || !url}
+                    className={`flex-1 sm:flex-initial px-4 py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center ${
+                      (isCapturing || !url) ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {isCapturing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        処理中...
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="h-4 w-4 mr-2" />
+                        取得開始
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setSettingsOpen(true)}
+                    className={`px-3 py-2 rounded-lg transition-all flex items-center justify-center ${
+                      darkMode
+                        ? 'bg-gray-700/70 text-gray-100 hover:bg-gray-600/70 border border-gray-600'
+                        : 'bg-white/70 text-gray-900 hover:bg-white/90 border border-gray-300'
+                    }`}
+                  >
+                    <Settings className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">詳細設定</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="flex items-end gap-2">
-              <button
-                onClick={() => setSettingsOpen(true)}
-                className={`px-3 py-2 rounded-lg transition-all flex items-center ${
-                  darkMode
-                    ? 'bg-gray-700/70 text-gray-100 hover:bg-gray-600/70 border border-gray-600'
-                    : 'bg-white/70 text-gray-900 hover:bg-white/90 border border-gray-300'
-                }`}
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                詳細設定
-              </button>
             </div>
           </div>
         </div>
@@ -1201,107 +1205,6 @@ const HistoryCard: React.FC<{
         <RefreshCw className="h-3 w-3" />
       </button>
     </div>
-  );
-};
-
-// Component: Sidebar
-const Sidebar: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  darkMode: boolean;
-  activeProjectsCount: number;
-  favoritesCount: number;
-}> = ({ isOpen, onClose, darkMode, activeProjectsCount, favoritesCount }) => {
-  const menuItems = [
-    { icon: <LayoutDashboard className="h-5 w-5" />, label: 'ダッシュボード', active: true },
-    { icon: <Download className="h-5 w-5" />, label: 'ダウンロード可能', badge: activeProjectsCount > 0 ? activeProjectsCount.toString() : undefined },
-    { icon: <Star className="h-5 w-5" />, label: 'お気に入り', badge: favoritesCount > 0 ? favoritesCount.toString() : undefined },
-    { icon: <History className="h-5 w-5" />, label: '取得履歴' },
-    { icon: <Database className="h-5 w-5" />, label: 'ストレージ' },
-    { icon: <Settings className="h-5 w-5" />, label: '設定' },
-  ];
-
-  return (
-    <>
-      {/* Mobile Overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={onClose}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`fixed top-0 left-0 h-full glass-strong z-50 transition-transform duration-300 w-64 shadow-2xl ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex flex-col h-full">
-          {/* Sidebar Header */}
-          <div className={`border-b ${darkMode ? 'border-gray-700' : 'border-white/20'}`}>
-            <div className="flex items-center justify-between px-4 h-16">
-              <div className="flex items-center space-x-2">
-                <Camera className="h-6 w-6 text-blue-600" />
-                <h2 className={`text-lg font-bold ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>ScreenCapture</h2>
-              </div>
-              <button
-                onClick={onClose}
-                className={darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Navigation Menu */}
-          <nav className="flex-1 overflow-y-auto p-4">
-            <ul className="space-y-1">
-              {menuItems.map((item, index) => (
-                <li key={index}>
-                  <button
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all ${
-                      item.active
-                        ? 'gradient-primary text-white shadow-lg'
-                        : darkMode
-                        ? 'text-gray-300 hover:bg-gray-700/50'
-                        : 'text-gray-700 hover:bg-white/20'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      {item.icon}
-                      <span className="font-medium">{item.label}</span>
-                    </div>
-                    {item.badge && (
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        item.active ? 'bg-white/30 text-white' : 'gradient-secondary text-white'
-                      }`}>
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
-
-          {/* Sidebar Footer */}
-          {user && (
-            <div className={`p-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-              <div className="flex items-center space-x-3">
-                <div className={`w-10 h-10 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-                    {user.email || 'user@example.com'}
-                  </p>
-                  <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>無料プラン</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </aside>
-    </>
   );
 };
 
