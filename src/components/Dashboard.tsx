@@ -684,7 +684,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
@@ -727,7 +727,7 @@ const Dashboard: React.FC = () => {
                   <h1 className="text-xl font-bold">ScreenCapture</h1>
                 </div>
 
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                <span className="hidden md:inline-block text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
                   完全無料版
                 </span>
               </div>
@@ -776,7 +776,7 @@ const Dashboard: React.FC = () => {
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
                 URLを入力してスクリーンショットを取得
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="url"
                   value={url}
@@ -789,39 +789,39 @@ const Dashboard: React.FC = () => {
                     darkMode ? 'text-gray-100 border-gray-600' : 'text-gray-900 border-gray-300'
                   }`}
                 />
-                <button
-                  onClick={handleCapture}
-                  disabled={isCapturing || !url}
-                  className={`px-4 py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-all flex items-center ${
-                    (isCapturing || !url) ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  {isCapturing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      処理中...
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="h-4 w-4 mr-2" />
-                      取得開始
-                    </>
-                  )}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCapture}
+                    disabled={isCapturing || !url}
+                    className={`flex-1 sm:flex-initial px-4 py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center ${
+                      (isCapturing || !url) ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {isCapturing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        処理中...
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="h-4 w-4 mr-2" />
+                        取得開始
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setSettingsOpen(true)}
+                    className={`px-3 py-2 rounded-lg transition-all flex items-center justify-center ${
+                      darkMode
+                        ? 'bg-gray-700/70 text-gray-100 hover:bg-gray-600/70 border border-gray-600'
+                        : 'bg-white/70 text-gray-900 hover:bg-white/90 border border-gray-300'
+                    }`}
+                  >
+                    <Settings className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">詳細設定</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="flex items-end gap-2">
-              <button
-                onClick={() => setSettingsOpen(true)}
-                className={`px-3 py-2 rounded-lg transition-all flex items-center ${
-                  darkMode
-                    ? 'bg-gray-700/70 text-gray-100 hover:bg-gray-600/70 border border-gray-600'
-                    : 'bg-white/70 text-gray-900 hover:bg-white/90 border border-gray-300'
-                }`}
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                詳細設定
-              </button>
             </div>
           </div>
         </div>
