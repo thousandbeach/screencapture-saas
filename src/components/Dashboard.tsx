@@ -7,6 +7,7 @@ import {
   Loader2, AlertTriangle, Info, X, Camera, Menu,
   LayoutDashboard, History, Moon, Sun, LogOut
 } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 import { useDarkMode } from '@/stores/useDarkMode';
 import { useAuth } from '@/stores/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -691,6 +692,7 @@ const Dashboard: React.FC = () => {
         darkMode={darkMode}
         activeProjectsCount={activeProjects.filter(p => p.status === 'completed').length}
         favoritesCount={favorites.length}
+        user={user}
       />
 
       {/* Main Content Area */}
@@ -1211,7 +1213,8 @@ const Sidebar: React.FC<{
   darkMode: boolean;
   activeProjectsCount: number;
   favoritesCount: number;
-}> = ({ isOpen, onClose, darkMode, activeProjectsCount, favoritesCount }) => {
+  user: User | null;
+}> = ({ isOpen, onClose, darkMode, activeProjectsCount, favoritesCount, user }) => {
   const menuItems = [
     { icon: <LayoutDashboard className="h-5 w-5" />, label: 'ダッシュボード', active: true },
     { icon: <Download className="h-5 w-5" />, label: 'ダウンロード可能', badge: activeProjectsCount > 0 ? activeProjectsCount.toString() : undefined },
