@@ -11,41 +11,20 @@ import {
 import { User } from '@supabase/supabase-js';
 import { useDarkMode } from '@/stores/useDarkMode';
 import { useAuth } from '@/stores/useAuth';
+import { useActiveProjects } from '@/stores/useActiveProjects';
+import { useFavorites } from '@/stores/useFavorites';
+import type { ActiveProject } from '@/stores/useActiveProjects';
+import type { FavoriteSite, CaptureSettings } from '@/stores/useFavorites';
 import { supabase } from '@/lib/supabase';
 import { Sidebar } from '@/components/Sidebar';
+import { shallow } from 'zustand/shallow';
 
 // Types
-interface ActiveProject {
-  id: string;
-  url: string;
-  pageCount: number;
-  devices: string[];
-  status: 'processing' | 'completed' | 'error';
-  progress: number;
-  expiresAt: Date;
-  downloadCount: number;
-}
-
-interface FavoriteSite {
-  id: string;
-  url: string;
-  title: string;
-  captureCount: number;
-  settings?: CaptureSettings;
-}
-
 interface HistoryItem {
   id: string;
   url: string;
   pageCount: number;
   capturedAt: Date;
-}
-
-interface CaptureSettings {
-  devices: string[];
-  maxPages: number;
-  allPages: boolean;
-  excludePopups: boolean;
 }
 
 // Utility functions
@@ -60,10 +39,32 @@ const formatTime = (date: Date) => {
   return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 };
 
+const validateUrl = (urlString: string): boolean => {
+  // URLの正規表現パターン: http(s)://で始まり、ドメイン名を含む
+  const urlPattern = /^https?:\/\/([\w-]+(\.[\w-]+)+|localhost)(:\d+)?(\/.*)?$/i;
+  return urlPattern.test(urlString);
+};
+
 // Main Dashboard Component
 const Dashboard: React.FC = () => {
-  const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
-  const [favorites, setFavorites] = useState<FavoriteSite[]>([]);
+  // Zustand stores - セレクタ関数を使用して各プロパティを個別に監視
+  const activeProjects = useActiveProjects(state => state.projects);
+  const initializeProjects = useActiveProjects(state => state.initialize);
+  const favorites = useFavorites(state => state.favorites);
+  const initializeFavorites = useFavorites(state => state.initialize);
+
+  console.log('[Dashboard RENDER] activeProjects:', activeProjects.length, 'favorites:', favorites.length);
+
+  // Log Zustand store data whenever it changes (for debugging)
+  useEffect(() => {
+    console.log('[Dashboard] activeProjects from Zustand:', activeProjects);
+  }, [activeProjects]);
+
+  useEffect(() => {
+    console.log('[Dashboard] favorites from Zustand:', favorites);
+  }, [favorites]);
+
+  // Local state
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [stats, setStats] = useState({
     monthlyCaptures: 0,
@@ -71,6 +72,11 @@ const Dashboard: React.FC = () => {
     favoritesCount: 0,
     storageUsage: 0,
   });
+
+  // Log stats whenever it changes (for debugging)
+  useEffect(() => {
+    console.log('[Stats] Current stats state:', stats);
+  }, [stats]);
 
   const [url, setUrl] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -106,48 +112,31 @@ const Dashboard: React.FC = () => {
     }
   }, [darkMode]);
 
-  // お気に入りをロード
+  // Initialize Zustand stores
   useEffect(() => {
     if (!user) return;
 
-    const fetchFavorites = async () => {
-      const { data, error } = await supabase
-        .from('favorite_sites')
-        .select('id, url, title, settings')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+    console.log('[Dashboard] INIT useEffect triggered');
 
-      if (error) {
-        console.error('Error fetching favorites:', error);
-        return;
-      }
+    let cleanupProjects: (() => void) | undefined;
+    let cleanupFavorites: (() => void) | undefined;
 
-      if (data) {
-        // 各お気に入りの使用回数を並行取得
-        const favoritesWithCount = await Promise.all(
-          data.map(async (item) => {
-            const { count } = await supabase
-              .from('capture_history')
-              .select('*', { count: 'exact', head: true })
-              .eq('user_id', user.id)
-              .eq('base_url', item.url);
-
-            return {
-              id: item.id,
-              url: item.url,
-              title: item.title || new URL(item.url).hostname,
-              captureCount: count || 0,
-              settings: item.settings as CaptureSettings | undefined,
-            };
-          })
-        );
-
-        setFavorites(favoritesWithCount);
-      }
+    // 非同期で初期化してクリーンアップ関数を取得
+    const initStores = async () => {
+      cleanupProjects = await initializeProjects(user.id);
+      cleanupFavorites = await initializeFavorites(user.id);
     };
 
-    fetchFavorites();
-  }, [user]);
+    initStores();
+
+    // クリーンアップ関数を返す
+    return () => {
+      console.log('[Dashboard] INIT Cleaning up Zustand stores');
+      if (cleanupProjects) cleanupProjects();
+      if (cleanupFavorites) cleanupFavorites();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]); // user.id のみに依存（initializeProjects/Favoritesは安定している）
 
   // 取得履歴をロード
   useEffect(() => {
@@ -172,12 +161,12 @@ const Dashboard: React.FC = () => {
         .limit(historyLimit);
 
       if (error) {
-        console.error('[History] Error fetching history:', {
-          error,
-          errorMessage: error.message,
-          errorDetails: error.details,
-          errorHint: error.hint,
-          errorCode: error.code,
+        console.error('[History] Error fetching history:', error);
+        console.error('[History] Error details:', {
+          message: error?.message,
+          details: error?.details,
+          hint: error?.hint,
+          code: error?.code,
         });
         return;
       }
@@ -200,66 +189,44 @@ const Dashboard: React.FC = () => {
     };
 
     fetchHistory();
-  }, [user, historyLimit, searchQuery]);
 
-  // アクティブプロジェクトをロード（ページロード時）
-  useEffect(() => {
-    if (!user) return;
+    // Realtime購読で履歴の更新を監視
+    const channelName = `history_changes_${user.id}_${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'capture_history',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('[History] New capture detected:', payload);
+          console.log('[History] Refetching history...');
+          fetchHistory();
+        }
+      )
+      .subscribe((status) => {
+        console.log('[History] Realtime subscription status:', status);
+      });
 
-    const fetchActiveProjects = async () => {
-      console.log('[ActiveProjects] Fetching active projects for user:', user.id);
-
-      const now = new Date().toISOString();
-      const { data, error } = await supabase
-        .from('active_projects')
-        .select('id, history_id, user_id, status, progress, expires_at, download_count')
-        .eq('user_id', user.id)
-        .gt('expires_at', now) // 期限切れでないもののみ
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('[ActiveProjects] Error fetching active projects:', error);
-        return;
-      }
-
-      console.log('[ActiveProjects] Fetched projects:', data);
-
-      if (data && data.length > 0) {
-        // 各プロジェクトのhistory情報を取得
-        const projectsWithHistory = await Promise.all(
-          data.map(async (project) => {
-            const { data: historyData } = await supabase
-              .from('capture_history')
-              .select('base_url, page_count, metadata')
-              .eq('id', project.history_id)
-              .single();
-
-            return {
-              id: project.id,
-              url: historyData?.base_url || 'Unknown',
-              pageCount: historyData?.page_count || 0,
-              devices: historyData?.metadata?.devices || ['desktop'],
-              status: project.status,
-              progress: project.progress,
-              expiresAt: new Date(project.expires_at),
-              downloadCount: project.download_count,
-            } as ActiveProject;
-          })
-        );
-
-        console.log('[ActiveProjects] Projects with history:', projectsWithHistory);
-        setActiveProjects(projectsWithHistory);
-      }
+    return () => {
+      console.log('[History] Cleaning up history subscription');
+      supabase.removeChannel(channel);
     };
-
-    fetchActiveProjects();
-  }, [user]);
+  }, [user, historyLimit, searchQuery]);
 
   // 統計データをロード
   useEffect(() => {
     if (!user) return;
 
+    console.log('[Stats] useEffect triggered for user:', user.id);
+
     const fetchStats = async () => {
+      console.log('[Stats] fetchStats called');
+
       // 今月の取得回数
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
@@ -279,120 +246,49 @@ const Dashboard: React.FC = () => {
 
       const totalPages = historyData?.reduce((sum, item) => sum + (item.page_count || 0), 0) || 0;
 
-      setStats({
+      // お気に入り数は既に取得済みのfavorites変数から取得
+      const newStats = {
         monthlyCaptures: monthlyCount || 0,
         totalPages: totalPages,
         favoritesCount: favorites.length,
         storageUsage: 0, // TODO: ストレージ使用率は後で実装
-      });
+      };
+
+      console.log('[Stats] Calculated stats:', newStats);
+      console.log('[Stats] Setting stats state...');
+
+      setStats(newStats);
+
+      console.log('[Stats] setStats called with:', newStats);
     };
 
     fetchStats();
-  }, [user, favorites.length]);
 
-  // Supabase Realtime: active_projectsの変更を購読
-  useEffect(() => {
-    if (!user) return;
-
-    console.log('[Realtime] Setting up subscription for user:', user.id);
-
+    // Realtime購読で統計データを自動更新
     const channel = supabase
-      .channel('active_projects_changes')
+      .channel(`stats_changes_${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
-          table: 'active_projects',
-          filter: `user_id=eq.${user.id}`, // 現在のユーザーのプロジェクトのみ購読
+          table: 'capture_history',
+          filter: `user_id=eq.${user.id}`,
         },
-        (payload) => {
-          console.log('[Realtime] Event received (ALL):', payload);
-
-          if (payload.eventType === 'INSERT') {
-            // 新しいプロジェクトを追加 - history情報を取得する必要がある
-            const newProject = payload.new as any;
-            console.log('[Realtime] INSERT event - new project:', newProject);
-
-            // セキュリティチェック: user_idが一致することを確認
-            if (newProject.user_id !== user.id) {
-              console.warn('[Realtime] Ignoring project from different user');
-              return;
-            }
-
-            // history情報を取得
-            (async () => {
-              const { data: historyData } = await supabase
-                .from('capture_history')
-                .select('base_url, page_count, metadata, created_at')
-                .eq('id', newProject.history_id)
-                .single();
-
-              console.log('[Realtime] Fetched history data:', historyData);
-
-              // active_projectsに追加
-              setActiveProjects((prev) => [
-                {
-                  id: newProject.id,
-                  url: historyData?.base_url || 'Unknown',
-                  pageCount: historyData?.page_count || 0,
-                  devices: historyData?.metadata?.devices || ['desktop'],
-                  status: newProject.status,
-                  progress: newProject.progress,
-                  expiresAt: new Date(newProject.expires_at),
-                  downloadCount: newProject.download_count,
-                },
-                ...prev,
-              ]);
-
-              // 履歴にも追加
-              if (historyData) {
-                setHistory((prev) => [
-                  {
-                    id: newProject.history_id,
-                    url: historyData.base_url,
-                    pageCount: historyData.page_count,
-                    capturedAt: new Date(historyData.created_at),
-                  },
-                  ...prev,
-                ]);
-              }
-            })();
-          } else if (payload.eventType === 'UPDATE') {
-            // プロジェクトを更新
-            const updatedProject = payload.new as any;
-            console.log('[Realtime] UPDATE event - updated project:', updatedProject);
-            setActiveProjects((prev) =>
-              prev.map((project) =>
-                project.id === updatedProject.id
-                  ? {
-                      ...project,
-                      status: updatedProject.status,
-                      progress: updatedProject.progress,
-                    }
-                  : project
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            // プロジェクトを削除
-            const deletedProject = payload.old as any;
-            console.log('[Realtime] DELETE event - deleted project:', deletedProject);
-            setActiveProjects((prev) =>
-              prev.filter((project) => project.id !== deletedProject.id)
-            );
-          }
+        () => {
+          console.log('[Stats] New capture detected, refetching stats...');
+          fetchStats();
         }
       )
       .subscribe((status) => {
-        console.log('[Realtime] Subscription status:', status);
+        console.log('[Stats] Realtime subscription status:', status);
       });
 
-    // クリーンアップ
     return () => {
-      console.log('[Realtime] Cleaning up subscription');
+      console.log('[Stats] Cleaning up stats subscription');
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, favorites]); // favorites変更時も統計を再計算
 
   const handleCapture = async () => {
     if (!url || isCapturing) return;
@@ -401,10 +297,8 @@ const Dashboard: React.FC = () => {
       setIsCapturing(true);
 
       // URLバリデーション
-      try {
-        new URL(url);
-      } catch {
-        alert('有効なURLを入力してください');
+      if (!validateUrl(url)) {
+        alert('有効なURLを入力してください（http://またはhttps://で始まる完全なURLが必要です）');
         return;
       }
 
@@ -476,6 +370,12 @@ const Dashboard: React.FC = () => {
       }
 
       console.log('[Recapture] History data:', historyData);
+
+      // URLバリデーション
+      if (!validateUrl(historyData.base_url)) {
+        alert('履歴に保存されているURLが不正です');
+        return;
+      }
 
       // 元の設定を取得
       const metadata = historyData.metadata as any;
@@ -549,6 +449,32 @@ const Dashboard: React.FC = () => {
       return;
     }
 
+    // URLバリデーション
+    if (!validateUrl(urlToAdd)) {
+      alert('有効なURLを入力してください（http://またはhttps://で始まる完全なURLが必要です）');
+      return;
+    }
+
+    // サーバー側で既に登録されているかチェック
+    const { data: existingFavorites, error: checkError } = await supabase
+      .from('favorite_sites')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('url', urlToAdd)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('[Favorites] Error checking existing favorite:', checkError);
+      alert('お気に入りの確認に失敗しました');
+      return;
+    }
+
+    if (existingFavorites) {
+      console.log('[Favorites] URL already exists in favorites:', urlToAdd);
+      alert('このURLは既にお気に入りに登録されています');
+      return;
+    }
+
     const customName = prompt('お気に入りの名前を入力（空欄でURLを使用）:');
     if (customName === null) return; // キャンセル
 
@@ -567,40 +493,13 @@ const Dashboard: React.FC = () => {
       });
 
     if (error) {
-      console.error('Error adding favorite:', error);
+      console.error('[Favorites] Error adding favorite:', error);
       alert('お気に入りの追加に失敗しました');
       return;
     }
 
-    // リストを再取得
-    const { data } = await supabase
-      .from('favorite_sites')
-      .select('id, url, title, settings')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (data) {
-      // 各お気に入りの使用回数を並行取得
-      const favoritesWithCount = await Promise.all(
-        data.map(async (item) => {
-          const { count } = await supabase
-            .from('capture_history')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('base_url', item.url);
-
-          return {
-            id: item.id,
-            url: item.url,
-            title: item.title || new URL(item.url).hostname,
-            captureCount: count || 0,
-            settings: item.settings as CaptureSettings | undefined,
-          };
-        })
-      );
-
-      setFavorites(favoritesWithCount);
-    }
+    alert('お気に入りに追加しました');
+    // Realtimeで自動的にリストが更新されるため、手動での再取得は不要
   };
 
   // ドラッグ&ドロップハンドラー
@@ -1141,20 +1040,21 @@ const FavoriteCard: React.FC<{
   return (
     <button
       onClick={() => onClick(favorite.id)}
-      className={`w-full text-left p-3 rounded-lg glass transition-all group ${
+      className={`w-full text-left p-3 rounded-lg glass transition-all group relative ${
         darkMode ? 'hover:bg-gray-700/30' : 'hover:bg-gray-200/50'
       }`}
+      title={favorite.url}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Globe className="h-4 w-4 text-blue-500 group-hover:text-blue-700" />
-          <div>
-            <p className={`font-medium text-sm ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>{favorite.title}</p>
-            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{favorite.url}</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center space-x-3 flex-1 min-w-0">
+          <Globe className="h-4 w-4 text-blue-500 group-hover:text-blue-700 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className={`font-medium text-sm truncate ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>{favorite.title}</p>
+            <p className={`text-xs truncate ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{favorite.url}</p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <span className="text-xs gradient-secondary text-white px-2 py-1 rounded">
+        <div className="flex items-center space-x-2 flex-shrink-0">
+          <span className="text-xs gradient-secondary text-white px-2 py-1 rounded whitespace-nowrap">
             {favorite.captureCount}回
           </span>
           <Play className="h-4 w-4 text-blue-500 group-hover:text-blue-700" />
