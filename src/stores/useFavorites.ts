@@ -41,20 +41,24 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
   initialize: async (userId: string) => {
     const state = get();
 
-    // 既に初期化済みの場合はスキップ
-    if (state.isInitialized) {
-      return;
+    // 初回のみローディング状態を管理
+    if (!state.isInitialized) {
+      set({ isLoading: true, error: null });
     }
 
-    set({ isLoading: true, error: null });
-
     try {
+      console.log('[useFavorites] Initializing for user:', userId);
+
+      // データを取得
       await get().fetchFavorites(userId);
 
-      // Realtime購読を開始
+      // Realtime購読を毎回設定（既存の購読がある場合はクリーンアップされる）
       const unsubscribe = get().subscribeToRealtime(userId);
 
-      set({ isInitialized: true, isLoading: false });
+      // 初回のみ初期化フラグを立てる
+      if (!state.isInitialized) {
+        set({ isInitialized: true, isLoading: false });
+      }
 
       // クリーンアップ関数を返す
       return unsubscribe;
@@ -114,8 +118,11 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
   subscribeToRealtime: (userId: string) => {
     console.log('[useFavorites] Setting up Realtime subscription for user:', userId);
 
+    const channelName = `favorites_${userId}_${Date.now()}`;
+
     const channel = supabase
-      .channel('favorites_global')
+      .channel(channelName)
+      // favorite_sites テーブルの変更を監視
       .on(
         'postgres_changes',
         {
@@ -125,7 +132,7 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
           filter: `user_id=eq.${userId}`,
         },
         async (payload) => {
-          console.log('[useFavorites] Realtime event:', payload.eventType, payload);
+          console.log('[useFavorites] favorite_sites event:', payload.eventType, payload);
 
           if (payload.eventType === 'INSERT') {
             const newFavorite = payload.new as any;
@@ -165,6 +172,41 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
           }
         }
       )
+      // capture_history テーブルの変更を監視（取得回数の更新用）
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'capture_history',
+          filter: `user_id=eq.${userId}`,
+        },
+        async (payload) => {
+          console.log('[useFavorites] capture_history INSERT event:', payload);
+
+          const newCapture = payload.new as any;
+          const capturedUrl = newCapture.base_url;
+
+          // このURLがお気に入りに登録されているか確認
+          const state = get();
+          const favorite = state.favorites.find(f => f.url === capturedUrl);
+
+          if (favorite) {
+            console.log('[useFavorites] Updating capture count for:', capturedUrl);
+            // データベースから最新の取得回数を再取得
+            const { count } = await supabase
+              .from('capture_history')
+              .select('*', { count: 'exact', head: true })
+              .eq('user_id', userId)
+              .eq('base_url', capturedUrl);
+
+            // 取得回数を更新
+            get().updateFavorite(favorite.id, {
+              captureCount: count || 0,
+            });
+          }
+        }
+      )
       .subscribe((status) => {
         console.log('[useFavorites] Subscription status:', status);
       });
@@ -177,9 +219,16 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
   },
 
   addFavorite: (favorite: FavoriteSite) => {
-    set((state) => ({
-      favorites: [favorite, ...state.favorites],
-    }));
+    set((state) => {
+      // 重複チェック
+      if (state.favorites.some(f => f.id === favorite.id)) {
+        console.log('[useFavorites] Duplicate favorite detected, ignoring:', favorite.id);
+        return state;
+      }
+      return {
+        favorites: [favorite, ...state.favorites],
+      };
+    });
   },
 
   updateFavorite: (id: string, updates: Partial<FavoriteSite>) => {

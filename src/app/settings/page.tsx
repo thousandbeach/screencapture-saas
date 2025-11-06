@@ -5,17 +5,21 @@ import { useRouter } from 'next/navigation';
 import { Menu, Camera, Bell, Moon, Sun, LogOut } from 'lucide-react';
 import { useAuth } from '@/stores/useAuth';
 import { useDarkMode } from '@/stores/useDarkMode';
+import { useActiveProjects } from '@/stores/useActiveProjects';
+import { useFavorites } from '@/stores/useFavorites';
 import { SettingsContent } from '@/components/SettingsContent';
 import { Sidebar } from '@/components/Sidebar';
-import { supabase } from '@/lib/supabase';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { darkMode, toggleDarkMode } = useDarkMode();
+  const { darkMode, toggleDarkMode} = useDarkMode();
+  // Zustand stores - セレクタ関数を使用して各プロパティを個別に監視
+  const activeProjects = useActiveProjects(state => state.projects);
+  const initializeProjects = useActiveProjects(state => state.initialize);
+  const favorites = useFavorites(state => state.favorites);
+  const initializeFavorites = useFavorites(state => state.initialize);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeProjectsCount, setActiveProjectsCount] = useState(0);
-  const [favoritesCount, setFavoritesCount] = useState(0);
 
   useEffect(() => {
     if (!user) {
@@ -31,84 +35,31 @@ export default function SettingsPage() {
     }
   }, [darkMode]);
 
-  // アクティブプロジェクト数を取得
+  // Initialize Zustand stores
   useEffect(() => {
     if (!user) return;
 
-    const fetchActiveProjects = async () => {
-      const now = new Date().toISOString();
-      const { count, error } = await supabase
-        .from('active_projects')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('status', 'completed')
-        .gt('expires_at', now);
+    console.log('[Settings] Initializing Zustand stores for user:', user.id);
 
-      if (!error) {
-        setActiveProjectsCount(count || 0);
-      }
+    let cleanupProjects: (() => void) | undefined;
+    let cleanupFavorites: (() => void) | undefined;
+
+    // 非同期で初期化してクリーンアップ関数を取得
+    const initStores = async () => {
+      cleanupProjects = await initializeProjects(user.id);
+      cleanupFavorites = await initializeFavorites(user.id);
     };
 
-    fetchActiveProjects();
+    initStores();
 
-    // Realtime購読でリアルタイム更新
-    const channel = supabase
-      .channel('settings_active_projects')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'active_projects',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          fetchActiveProjects();
-        }
-      )
-      .subscribe();
-
+    // クリーンアップ関数を返す
     return () => {
-      supabase.removeChannel(channel);
+      console.log('[Settings] Cleaning up Zustand stores');
+      if (cleanupProjects) cleanupProjects();
+      if (cleanupFavorites) cleanupFavorites();
     };
-  }, [user]);
-
-  // お気に入り数を取得
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchFavorites = async () => {
-      const { count } = await supabase
-        .from('favorite_sites')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
-      setFavoritesCount(count || 0);
-    };
-
-    fetchFavorites();
-
-    // Realtime購読でリアルタイム更新
-    const channel = supabase
-      .channel('settings_favorites')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'favorite_sites',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          fetchFavorites();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]); // user.id のみに依存（initializeProjects/Favoritesは安定している）
 
   const handleSignOut = async () => {
     try {
@@ -130,8 +81,8 @@ export default function SettingsPage() {
         isOpen={sidebarOpen}
         onCloseAction={() => setSidebarOpen(false)}
         darkMode={darkMode}
-        activeProjectsCount={activeProjectsCount}
-        favoritesCount={favoritesCount}
+        activeProjectsCount={activeProjects.filter(p => p.status === 'completed').length}
+        favoritesCount={favorites.length}
         user={user}
         activePage="settings"
       />

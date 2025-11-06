@@ -37,22 +37,26 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
   initialize: async (userId: string) => {
     const state = get();
 
-    // 既に初期化済みの場合はスキップ
-    if (state.isInitialized) {
-      return;
+    // 初回のみローディング状態を管理
+    if (!state.isInitialized) {
+      set({ isLoading: true, error: null });
     }
 
-    set({ isLoading: true, error: null });
-
     try {
+      console.log('[useActiveProjects] Initializing for user:', userId);
+
+      // データを取得
       await get().fetchProjects(userId);
 
-      // Realtime購読を開始
+      // Realtime購読を毎回設定（既存の購読がある場合はクリーンアップされる）
       const unsubscribe = get().subscribeToRealtime(userId);
 
-      set({ isInitialized: true, isLoading: false });
+      // 初回のみ初期化フラグを立てる
+      if (!state.isInitialized) {
+        set({ isInitialized: true, isLoading: false });
+      }
 
-      // クリーンアップ関数を保存（必要に応じて）
+      // クリーンアップ関数を返す
       return unsubscribe;
     } catch (error) {
       console.error('[useActiveProjects] Initialization error:', error);
@@ -115,8 +119,10 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
   subscribeToRealtime: (userId: string) => {
     console.log('[useActiveProjects] Setting up Realtime subscription for user:', userId);
 
+    const channelName = `active_projects_${userId}_${Date.now()}`;
+
     const channel = supabase
-      .channel('active_projects_global')
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -126,7 +132,7 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
           filter: `user_id=eq.${userId}`,
         },
         async (payload) => {
-          console.log('[useActiveProjects] Realtime event:', payload.eventType, payload);
+          console.log('[useActiveProjects] Realtime event (active_projects):', payload.eventType, payload);
 
           if (payload.eventType === 'INSERT') {
             const newProject = payload.new as any;
@@ -159,10 +165,20 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
           } else if (payload.eventType === 'UPDATE') {
             const updatedProject = payload.new as any;
 
+            // history情報を再取得してpage_countも更新
+            const { data: historyData } = await supabase
+              .from('capture_history')
+              .select('base_url, page_count, metadata')
+              .eq('id', updatedProject.history_id)
+              .single();
+
             get().updateProject(updatedProject.id, {
               status: updatedProject.status,
               progress: updatedProject.progress,
               downloadCount: updatedProject.download_count,
+              pageCount: historyData?.page_count,
+              url: historyData?.base_url,
+              devices: historyData?.metadata?.devices,
             });
           } else if (payload.eventType === 'DELETE') {
             const deletedProject = payload.old as any;
@@ -182,9 +198,16 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
   },
 
   addProject: (project: ActiveProject) => {
-    set((state) => ({
-      projects: [project, ...state.projects],
-    }));
+    set((state) => {
+      // 重複チェック
+      if (state.projects.some(p => p.id === project.id)) {
+        console.log('[useActiveProjects] Duplicate project detected, ignoring:', project.id);
+        return state;
+      }
+      return {
+        projects: [project, ...state.projects],
+      };
+    });
   },
 
   updateProject: (id: string, updates: Partial<ActiveProject>) => {
