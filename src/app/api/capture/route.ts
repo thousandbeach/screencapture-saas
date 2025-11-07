@@ -44,9 +44,13 @@ export async function POST(request: NextRequest) {
     // URLバリデーション
     try {
       new URL(url);
+      // プロトコル部分の検証（https://やhttp://が正しい形式か）
+      if (!url.match(/^https?:\/\/.+/)) {
+        throw new Error('Invalid URL format');
+      }
     } catch {
       return NextResponse.json(
-        { error: '有効なURLを入力してください' },
+        { error: '有効なURLを入力してください（例: https://example.com）' },
         { status: 400 }
       );
     }

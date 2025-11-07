@@ -522,8 +522,12 @@ const Dashboard: React.FC = () => {
     // URLバリデーション
     try {
       new URL(url);
+      // プロトコル部分の検証（https://やhttp://が正しい形式か）
+      if (!url.match(/^https?:\/\/.+/)) {
+        throw new Error('Invalid URL format');
+      }
     } catch {
-      alert('有効なURLを入力してください');
+      alert('有効なURLを入力してください（例: https://example.com）');
       return;
     }
 
@@ -598,6 +602,18 @@ const Dashboard: React.FC = () => {
       }
 
       console.log('[Recapture] History data:', historyData);
+
+      // URLバリデーション
+      try {
+        new URL(historyData.base_url);
+        // プロトコル部分の検証（https://やhttp://が正しい形式か）
+        if (!historyData.base_url.match(/^https?:\/\/.+/)) {
+          throw new Error('Invalid URL format');
+        }
+      } catch {
+        alert('履歴のURLが不正な形式です。このURLは再取得できません。');
+        return;
+      }
 
       // 元の設定を取得
       const metadata = historyData.metadata as any;
