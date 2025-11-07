@@ -369,6 +369,7 @@ const Dashboard: React.FC = () => {
                       ...project,
                       status: updatedProject.status,
                       progress: updatedProject.progress,
+                      downloadCount: updatedProject.download_count,
                     }
                   : project
               )
@@ -390,6 +391,72 @@ const Dashboard: React.FC = () => {
     // クリーンアップ
     return () => {
       console.log('[Realtime] Cleaning up subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Supabase Realtime: capture_historyの変更を購読（統計とお気に入りの取得回数を更新）
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('[Realtime] Setting up capture_history subscription for user:', user.id);
+
+    const channel = supabase
+      .channel('capture_history_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'capture_history',
+          filter: `user_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          console.log('[Realtime] capture_history INSERT event:', payload);
+
+          const newHistory = payload.new as any;
+
+          // 統計を更新
+          const startOfMonth = new Date();
+          startOfMonth.setDate(1);
+          startOfMonth.setHours(0, 0, 0, 0);
+
+          const { count: monthlyCount } = await supabase
+            .from('capture_history')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .gte('created_at', startOfMonth.toISOString());
+
+          const { data: historyData } = await supabase
+            .from('capture_history')
+            .select('page_count')
+            .eq('user_id', user.id);
+
+          const totalPages = historyData?.reduce((sum, item) => sum + (item.page_count || 0), 0) || 0;
+
+          setStats((prev) => ({
+            ...prev,
+            monthlyCaptures: monthlyCount || 0,
+            totalPages: totalPages,
+          }));
+
+          // お気に入りの取得回数を更新
+          setFavorites((prev) =>
+            prev.map((fav) => {
+              if (fav.url === newHistory.base_url) {
+                return { ...fav, captureCount: fav.captureCount + 1 };
+              }
+              return fav;
+            })
+          );
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] capture_history subscription status:', status);
+      });
+
+    return () => {
+      console.log('[Realtime] Cleaning up capture_history subscription');
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -1144,16 +1211,17 @@ const FavoriteCard: React.FC<{
       className={`w-full text-left p-3 rounded-lg glass transition-all group ${
         darkMode ? 'hover:bg-gray-700/30' : 'hover:bg-gray-200/50'
       }`}
+      title={favorite.url}
     >
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Globe className="h-4 w-4 text-blue-500 group-hover:text-blue-700" />
-          <div>
+        <div className="flex items-center space-x-3 flex-1 min-w-0">
+          <Globe className="h-4 w-4 text-blue-500 group-hover:text-blue-700 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
             <p className={`font-medium text-sm ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>{favorite.title}</p>
-            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{favorite.url}</p>
+            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'} truncate`}>{favorite.url}</p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           <span className="text-xs gradient-secondary text-white px-2 py-1 rounded">
             {favorite.captureCount}回
           </span>
