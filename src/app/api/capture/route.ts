@@ -185,6 +185,18 @@ export async function POST(request: NextRequest) {
           visited.add(normalizeUrl(url));
 
           while (queue.length > 0 && urlsToCrawl.length < maxPages) {
+            // ステータスチェック: キャンセルされていたら処理を中断
+            const { data: currentProject } = await supabaseAdmin
+              .from('active_projects')
+              .select('status')
+              .eq('id', project.id)
+              .single();
+
+            if (currentProject?.status === 'cancelled') {
+              console.log(`[Crawl] Project ${project.id} was cancelled, stopping crawl`);
+              break;
+            }
+
             const currentUrl = queue.shift()!;
             urlsToCrawl.push(currentUrl);
 
