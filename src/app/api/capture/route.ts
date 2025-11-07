@@ -259,11 +259,14 @@ export async function POST(request: NextRequest) {
         const devices = options.devices || ['desktop'];
         const totalScreenshots = urlsToCrawl.length * devices.length;
         let completedScreenshots = 0;
+        const fileMapping: Array<{ filename: string; url: string; device: string; pageIndex: number }> = [];
 
         // 各URLについて、各デバイスでスクリーンショット取得（順次実行）
+        let pageIndex = 0;
         await urlsToCrawl.reduce(async (previousPromise, pageUrl) => {
           await previousPromise;
           console.log(`[Screenshot] Processing URL: ${pageUrl}`);
+          pageIndex++;
 
           await devices.reduce(async (prevDevicePromise, device) => {
             await prevDevicePromise;
@@ -400,7 +403,8 @@ export async function POST(request: NextRequest) {
             }
 
             // Supabase Storageにアップロード
-            const uploadPath = `${project.storage_path}/${device}_${Date.now()}.webp`;
+            const filename = `page${pageIndex}_${device}_${Date.now()}.webp`;
+            const uploadPath = `${project.storage_path}/${filename}`;
             console.log(`[Screenshot] Uploading ${device} screenshot to ${uploadPath}...`);
 
             const { error: uploadError } = await supabaseAdmin.storage
@@ -415,6 +419,14 @@ export async function POST(request: NextRequest) {
             }
 
             console.log(`[Screenshot] Uploaded ${device} screenshot: ${uploadPath}`);
+
+            // ファイルとURLのマッピングを記録
+            fileMapping.push({
+              filename,
+              url: pageUrl,
+              device,
+              pageIndex,
+            });
 
             // ページクローズ
             await page.close();
@@ -431,6 +443,19 @@ export async function POST(request: NextRequest) {
             console.log(`[Screenshot] Progress: ${progress}%`);
           }, Promise.resolve());
         }, Promise.resolve());
+
+        // マッピング情報をmetadataに保存
+        await supabaseAdmin
+          .from('capture_history')
+          .update({
+            metadata: {
+              devices: options.devices,
+              max_pages: options.max_pages,
+              exclude_popups: options.exclude_popups,
+              file_mapping: fileMapping,
+            },
+          })
+          .eq('id', history.id);
 
         // すべて完了 - ステータスをcompletedに更新
         await supabaseAdmin

@@ -42,10 +42,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // プロジェクト情報を取得
+    // プロジェクト情報と履歴情報を取得
     const { data: project, error: projectError } = await supabaseAdmin
       .from('active_projects')
-      .select('id, user_id, storage_path, status, download_count')
+      .select(`
+        id,
+        user_id,
+        storage_path,
+        status,
+        download_count,
+        history_id,
+        capture_history (
+          base_url,
+          page_count,
+          created_at,
+          metadata
+        )
+      `)
       .eq('id', projectId)
       .single();
 
@@ -87,6 +100,52 @@ export async function GET(request: NextRequest) {
 
     // ZIPファイルを作成
     const zip = new JSZip();
+
+    // メタデータファイルを追加
+    const historyData = project.capture_history as any;
+    if (historyData) {
+      const fileMapping = historyData.metadata?.file_mapping || [];
+
+      const metadata = {
+        url: historyData.base_url,
+        captured_at: historyData.created_at,
+        page_count: historyData.page_count,
+        settings: historyData.metadata,
+        project_id: projectId,
+        download_date: new Date().toISOString(),
+        files: fileMapping,
+      };
+
+      zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+      // 人間が読みやすいREADMEも追加
+      let readme = `ScreenCapture - キャプチャ情報
+==================
+
+ベースURL: ${historyData.base_url}
+取得日時: ${new Date(historyData.created_at).toLocaleString('ja-JP')}
+ページ数: ${historyData.page_count}
+ダウンロード日時: ${new Date().toLocaleString('ja-JP')}
+
+`;
+
+      // ファイルとURLのマッピング情報を追加
+      if (fileMapping.length > 0) {
+        readme += '\n【ファイルとURLの対応】\n';
+        readme += '==================\n\n';
+
+        fileMapping.forEach((mapping: any) => {
+          readme += `${mapping.filename}\n`;
+          readme += `  └ URL: ${mapping.url}\n`;
+          readme += `  └ デバイス: ${mapping.device}\n\n`;
+        });
+      }
+
+      readme += '\nこのフォルダには、上記URLのスクリーンショットが含まれています。\n';
+      readme += '詳細な設定情報は metadata.json をご確認ください。\n';
+
+      zip.file('README.txt', readme);
+    }
 
     // 各ファイルをダウンロードしてZIPに追加
     for (const file of files) {

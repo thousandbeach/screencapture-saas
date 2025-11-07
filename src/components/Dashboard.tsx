@@ -24,6 +24,7 @@ interface ActiveProject {
   progress: number;
   expiresAt: Date;
   downloadCount: number;
+  errorMessage?: string | null;
 }
 
 interface FavoriteSite {
@@ -370,6 +371,7 @@ const Dashboard: React.FC = () => {
                       status: updatedProject.status,
                       progress: updatedProject.progress,
                       downloadCount: updatedProject.download_count,
+                      errorMessage: updatedProject.error_message,
                     }
                   : project
               )
@@ -451,6 +453,59 @@ const Dashboard: React.FC = () => {
           );
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'capture_history',
+          filter: `user_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          console.log('[Realtime] capture_history UPDATE event:', payload);
+
+          const updatedHistory = payload.new as any;
+
+          // active_projectsのpageCountを更新
+          const { data: activeProject } = await supabase
+            .from('active_projects')
+            .select('id')
+            .eq('history_id', updatedHistory.id)
+            .single();
+
+          if (activeProject) {
+            setActiveProjects((prev) =>
+              prev.map((project) =>
+                project.id === activeProject.id
+                  ? { ...project, pageCount: updatedHistory.page_count }
+                  : project
+              )
+            );
+          }
+
+          // 履歴のpageCountも更新
+          setHistory((prev) =>
+            prev.map((item) =>
+              item.id === updatedHistory.id
+                ? { ...item, pageCount: updatedHistory.page_count }
+                : item
+            )
+          );
+
+          // 統計の総ページ数を再計算
+          const { data: historyData } = await supabase
+            .from('capture_history')
+            .select('page_count')
+            .eq('user_id', user.id);
+
+          const totalPages = historyData?.reduce((sum, item) => sum + (item.page_count || 0), 0) || 0;
+
+          setStats((prev) => ({
+            ...prev,
+            totalPages: totalPages,
+          }));
+        }
+      )
       .subscribe((status) => {
         console.log('[Realtime] capture_history subscription status:', status);
       });
@@ -464,23 +519,23 @@ const Dashboard: React.FC = () => {
   const handleCapture = async () => {
     if (!url || isCapturing) return;
 
+    // URLバリデーション
+    try {
+      new URL(url);
+    } catch {
+      alert('有効なURLを入力してください');
+      return;
+    }
+
+    // トークン取得
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      alert('ログインが必要です');
+      return;
+    }
+
     try {
       setIsCapturing(true);
-
-      // URLバリデーション
-      try {
-        new URL(url);
-      } catch {
-        alert('有効なURLを入力してください');
-        return;
-      }
-
-      // トークン取得
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        alert('ログインが必要です');
-        return;
-      }
 
       // API呼び出し
       const response = await fetch('/api/capture', {
@@ -1215,6 +1270,11 @@ const ActiveProjectCard: React.FC<{
             <X className="h-3 w-3 mr-1" />
             <span>ユーザーによりキャンセルされました</span>
           </div>
+        ) : project.status === 'error' ? (
+          <div className="flex items-center text-xs text-red-600">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            <span className="truncate">{project.errorMessage || 'エラーが発生しました'}</span>
+          </div>
         ) : (
           <>
             <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -1239,11 +1299,19 @@ const ActiveProjectCard: React.FC<{
           className={`h-1.5 rounded-full transition-all duration-300 ${
             project.status === 'processing' ? 'gradient-animated' :
             project.status === 'completed' ? 'bg-gradient-to-r from-green-400 to-emerald-500' :
+            project.status === 'error' ? 'bg-gradient-to-r from-red-500 to-pink-500' :
+            project.status === 'cancelled' ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
             isUrgent ? 'bg-gradient-to-r from-red-500 to-pink-500' :
             isWarning ? 'bg-gradient-to-r from-orange-400 to-yellow-500' :
             'bg-gradient-to-r from-green-400 to-emerald-500'
           }`}
-          style={{ width: `${project.status === 'processing' ? project.progress : project.status === 'completed' ? 100 : (timeLeft / 24) * 100}%` }}
+          style={{ width: `${
+            project.status === 'processing' ? project.progress :
+            project.status === 'completed' ? 100 :
+            project.status === 'error' ? 100 :
+            project.status === 'cancelled' ? project.progress :
+            (timeLeft / 24) * 100
+          }%` }}
         />
       </div>
     </div>
