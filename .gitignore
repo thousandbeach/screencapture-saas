@@ -48,4 +48,8 @@ next-env.d.ts
 # email output
 .email-output/
 
+# test scripts
+scripts/test-realtime.js
+scripts/check-realtime-status.sql
+
 HANDOVER.md
