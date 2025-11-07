@@ -213,10 +213,10 @@ const Dashboard: React.FC = () => {
       const now = new Date().toISOString();
       const { data, error } = await supabase
         .from('active_projects')
-        .select('id, history_id, user_id, status, progress, expires_at, download_count')
+        .select('id, history_id, user_id, status, progress, expires_at, download_count, error_message')
         .eq('user_id', user.id)
         .gt('expires_at', now) // 期限切れでないもののみ
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false});
 
       if (error) {
         console.error('[ActiveProjects] Error fetching active projects:', error);
@@ -244,6 +244,7 @@ const Dashboard: React.FC = () => {
               progress: project.progress,
               expiresAt: new Date(project.expires_at),
               downloadCount: project.download_count,
+              errorMessage: project.error_message,
             } as ActiveProject;
           })
         );
@@ -321,7 +322,23 @@ const Dashboard: React.FC = () => {
               return;
             }
 
-            // history情報を取得
+            // まず最小限の情報でプロジェクトを即座に追加（UPDATEイベントを受け取れるようにする）
+            setActiveProjects((prev) => [
+              {
+                id: newProject.id,
+                url: 'Loading...',
+                pageCount: 0,
+                devices: ['desktop'],
+                status: newProject.status,
+                progress: newProject.progress,
+                expiresAt: new Date(newProject.expires_at),
+                downloadCount: newProject.download_count,
+                errorMessage: newProject.error_message,
+              },
+              ...prev,
+            ]);
+
+            // history情報を取得して更新
             (async () => {
               const { data: historyData } = await supabase
                 .from('capture_history')
@@ -331,20 +348,19 @@ const Dashboard: React.FC = () => {
 
               console.log('[Realtime] Fetched history data:', historyData);
 
-              // active_projectsに追加
-              setActiveProjects((prev) => [
-                {
-                  id: newProject.id,
-                  url: historyData?.base_url || 'Unknown',
-                  pageCount: historyData?.page_count || 0,
-                  devices: historyData?.metadata?.devices || ['desktop'],
-                  status: newProject.status,
-                  progress: newProject.progress,
-                  expiresAt: new Date(newProject.expires_at),
-                  downloadCount: newProject.download_count,
-                },
-                ...prev,
-              ]);
+              // history情報でプロジェクトを更新
+              setActiveProjects((prev) =>
+                prev.map((project) =>
+                  project.id === newProject.id
+                    ? {
+                        ...project,
+                        url: historyData?.base_url || 'Unknown',
+                        pageCount: historyData?.page_count || 0,
+                        devices: historyData?.metadata?.devices || ['desktop'],
+                      }
+                    : project
+                )
+              );
 
               // 履歴にも追加
               if (historyData) {
@@ -1287,8 +1303,8 @@ const ActiveProjectCard: React.FC<{
             <span>ユーザーによりキャンセルされました</span>
           </div>
         ) : project.status === 'error' ? (
-          <div className="flex items-center text-xs text-red-600">
-            <AlertTriangle className="h-3 w-3 mr-1" />
+          <div className="flex items-center text-xs text-red-600 flex-1 min-w-0">
+            <AlertTriangle className="h-3 w-3 mr-1 flex-shrink-0" />
             <span className="truncate">{project.errorMessage || 'エラーが発生しました'}</span>
           </div>
         ) : (

@@ -474,12 +474,30 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error(`[Screenshot] Error for project ${project.id}:`, error);
 
+        // エラーメッセージをユーザーフレンドリーに変換
+        let userFriendlyMessage = 'スクリーンショット取得に失敗しました';
+        if (error instanceof Error) {
+          const errorMsg = error.message;
+          if (errorMsg.includes('ERR_BLOCKED_BY_CLIENT')) {
+            userFriendlyMessage = 'このサイトはブロックされているため取得できません';
+          } else if (errorMsg.includes('ERR_INTERNET_DISCONNECTED') || errorMsg.includes('ERR_NAME_NOT_RESOLVED')) {
+            userFriendlyMessage = 'ネットワークエラー: サイトに接続できません';
+          } else if (errorMsg.includes('Navigation timeout') || errorMsg.includes('TimeoutError')) {
+            userFriendlyMessage = 'タイムアウト: サイトの読み込みに時間がかかりすぎています';
+          } else if (errorMsg.includes('スクリーンショットが空です')) {
+            userFriendlyMessage = 'スクリーンショットの取得に失敗しました';
+          } else if (errorMsg.length < 100) {
+            // 短いエラーメッセージはそのまま表示
+            userFriendlyMessage = errorMsg;
+          }
+        }
+
         // エラー時はステータスをerrorに更新
         await supabaseAdmin
           .from('active_projects')
           .update({
             status: 'error',
-            error_message: error instanceof Error ? error.message : 'スクリーンショット取得に失敗しました',
+            error_message: userFriendlyMessage,
           })
           .eq('id', project.id);
       } finally {
