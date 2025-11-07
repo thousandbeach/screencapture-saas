@@ -20,7 +20,7 @@ interface ActiveProject {
   url: string;
   pageCount: number;
   devices: string[];
-  status: 'processing' | 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error' | 'cancelled';
   progress: number;
   expiresAt: Date;
   downloadCount: number;
@@ -752,6 +752,39 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleCancel = async (projectId: string) => {
+    if (!confirm('キャプチャを中断しますか？\n処理を中止しますが、既に取得した画像は保持されます。')) {
+      return;
+    }
+
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('ログインが必要です');
+        return;
+      }
+
+      // キャンセルAPI呼び出し
+      const response = await fetch(`/api/cancel?project_id=${projectId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'キャンセルに失敗しました');
+      }
+
+      console.log('[Cancel] Successfully cancelled project:', projectId);
+    } catch (error) {
+      console.error('Cancel error:', error);
+      alert(error instanceof Error ? error.message : 'キャンセルに失敗しました');
+    }
+  };
+
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
@@ -949,6 +982,7 @@ const Dashboard: React.FC = () => {
                   key={project.id}
                   project={project}
                   onDownload={handleDownload}
+                  onCancel={handleCancel}
                   darkMode={darkMode}
                 />
               ))}
@@ -1134,8 +1168,9 @@ const StatsCard: React.FC<{
 const ActiveProjectCard: React.FC<{
   project: ActiveProject;
   onDownload: (id: string) => void;
+  onCancel: (id: string) => void;
   darkMode: boolean;
-}> = ({ project, onDownload, darkMode }) => {
+}> = ({ project, onDownload, onCancel, darkMode }) => {
   const timeLeft = getTimeLeft(project.expiresAt);
   const isUrgent = timeLeft <= 2;
   const isWarning = timeLeft <= 6;
@@ -1162,25 +1197,41 @@ const ActiveProjectCard: React.FC<{
       </div>
       <div className="flex items-center justify-between">
         {project.status === 'processing' ? (
+          <>
+            <div className={`flex items-center text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              <span>{project.progress}% 完了</span>
+            </div>
+            <button
+              onClick={() => onCancel(project.id)}
+              className="px-3 py-1 bg-gradient-to-r from-red-500 to-pink-600 text-white text-xs rounded hover:shadow-lg transition-all flex items-center"
+            >
+              <X className="h-3 w-3 mr-1" />
+              キャンセル
+            </button>
+          </>
+        ) : project.status === 'cancelled' ? (
           <div className={`flex items-center text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            <span>{project.progress}% 完了</span>
+            <X className="h-3 w-3 mr-1" />
+            <span>ユーザーによりキャンセルされました</span>
           </div>
         ) : (
-          <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {isUrgent && <AlertTriangle className="h-3 w-3 mr-1" />}
-            <Clock className="h-3 w-3 mr-1" />
-            <span>残り {timeLeft}時間</span>
-          </div>
-        )}
-        {project.status === 'completed' && (
-          <button
-            onClick={() => onDownload(project.id)}
-            className="px-3 py-1 gradient-primary text-white text-xs rounded hover:shadow-lg transition-all flex items-center"
-          >
-            <Download className="h-3 w-3 mr-1" />
-            ZIP
-          </button>
+          <>
+            <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              {isUrgent && <AlertTriangle className="h-3 w-3 mr-1" />}
+              <Clock className="h-3 w-3 mr-1" />
+              <span>残り {timeLeft}時間</span>
+            </div>
+            {project.status === 'completed' && (
+              <button
+                onClick={() => onDownload(project.id)}
+                className="px-3 py-1 gradient-primary text-white text-xs rounded hover:shadow-lg transition-all flex items-center"
+              >
+                <Download className="h-3 w-3 mr-1" />
+                ZIP
+              </button>
+            )}
+          </>
         )}
       </div>
       <div className="mt-2 w-full glass rounded-full h-1.5">
