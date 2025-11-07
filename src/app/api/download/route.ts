@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
         capture_history (
           base_url,
           page_count,
-          created_at,
+          captured_at,
           metadata
         )
       `)
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
 
       const metadata = {
         url: historyData.base_url,
-        captured_at: historyData.created_at,
+        captured_at: historyData.captured_at,
         page_count: historyData.page_count,
         settings: historyData.metadata,
         project_id: projectId,
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
 ==================
 
 ベースURL: ${historyData.base_url}
-取得日時: ${new Date(historyData.created_at).toLocaleString('ja-JP')}
+取得日時: ${new Date(historyData.captured_at).toLocaleString('ja-JP')}
 ページ数: ${historyData.page_count}
 ダウンロード日時: ${new Date().toLocaleString('ja-JP')}
 

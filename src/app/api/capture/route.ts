@@ -265,6 +265,9 @@ export async function POST(request: NextRequest) {
         let completedScreenshots = 0;
         const fileMapping: Array<{ filename: string; url: string; device: string; pageIndex: number }> = [];
 
+        // ファイルとURLのマッピング情報を保存
+        const fileMapping: Array<{ filename: string; url: string; device: string; pageIndex: number }> = [];
+
         // 各URLについて、各デバイスでスクリーンショット取得（順次実行）
         let pageIndex = 0;
         await urlsToCrawl.reduce(async (previousPromise, pageUrl) => {
