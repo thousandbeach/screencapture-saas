@@ -1,5 +1,23 @@
-# Cloud Run用 Puppeteer API Dockerfile
-FROM node:20-slim
+# Cloud Run用 Puppeteer API Dockerfile (Multi-stage build)
+
+# ========================================
+# Stage 1: Dependencies
+# ========================================
+FROM node:20-slim AS deps
+
+WORKDIR /app
+
+# package.jsonとpackage-lock.jsonをコピー
+COPY package*.json ./
+
+# 依存関係をインストール（本番用のみ）
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# ========================================
+# Stage 2: Runtime
+# ========================================
+FROM node:20-slim AS runtime
 
 # Puppeteer用の依存関係をインストール
 RUN apt-get update && apt-get install -y \
@@ -40,19 +58,21 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# 作業ディレクトリ
 WORKDIR /app
 
-# package.jsonとpackage-lock.jsonをコピー
-COPY package*.json ./
-
-# 依存関係をインストール
-RUN npm ci --only=production
+# 依存関係を前のステージからコピー
+COPY --from=deps /app/node_modules ./node_modules
 
 # アプリケーションコードをコピー
-COPY . .
+COPY index.js ./
+
+# 非rootユーザーで実行（セキュリティ強化）
+RUN groupadd -r nodejs && useradd -r -g nodejs nodejs && \
+    chown -R nodejs:nodejs /app
+USER nodejs
 
 # ポート設定
 ENV PORT=8080

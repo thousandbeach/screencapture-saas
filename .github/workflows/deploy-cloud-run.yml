@@ -68,6 +68,23 @@ jobs:
           echo "Service deployed to: $SERVICE_URL"
           echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
 
+      - name: Clean up old images
+        run: |
+          REPOSITORY="asia-northeast1-docker.pkg.dev/$PROJECT_ID/screencapture/api"
+
+          # 全イメージのダイジェストをリスト（作成日時降順）
+          IMAGES=$(gcloud artifacts docker images list $REPOSITORY \
+            --format="get(digest)" \
+            --sort-by="~CREATE_TIME")
+
+          # 最新1つを除いて削除
+          echo "$IMAGES" | tail -n +2 | while read DIGEST; do
+            if [ -n "$DIGEST" ]; then
+              echo "Deleting old image: $DIGEST"
+              gcloud artifacts docker images delete "${REPOSITORY}@${DIGEST}" --quiet || true
+            fi
+          done
+
       - name: Comment on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
