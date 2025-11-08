@@ -44,9 +44,13 @@ export async function POST(request: NextRequest) {
     // URLバリデーション
     try {
       new URL(url);
+      // プロトコル部分の検証（https://やhttp://が正しい形式か）
+      if (!url.match(/^https?:\/\/.+/)) {
+        throw new Error('Invalid URL format');
+      }
     } catch {
       return NextResponse.json(
-        { error: '有効なURLを入力してください' },
+        { error: '有効なURLを入力してください（例: https://example.com）' },
         { status: 400 }
       );
     }
@@ -185,6 +189,18 @@ export async function POST(request: NextRequest) {
           visited.add(normalizeUrl(url));
 
           while (queue.length > 0 && urlsToCrawl.length < maxPages) {
+            // ステータスチェック: キャンセルされていたら処理を中断
+            const { data: currentProject } = await supabaseAdmin
+              .from('active_projects')
+              .select('status')
+              .eq('id', project.id)
+              .single();
+
+            if (currentProject?.status === 'cancelled') {
+              console.log(`[Crawl] Project ${project.id} was cancelled, stopping crawl`);
+              break;
+            }
+
             const currentUrl = queue.shift()!;
             urlsToCrawl.push(currentUrl);
 
@@ -460,12 +476,30 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error(`[Screenshot] Error for project ${project.id}:`, error);
 
+        // エラーメッセージをユーザーフレンドリーに変換
+        let userFriendlyMessage = 'スクリーンショット取得に失敗しました';
+        if (error instanceof Error) {
+          const errorMsg = error.message;
+          if (errorMsg.includes('ERR_BLOCKED_BY_CLIENT')) {
+            userFriendlyMessage = 'このサイトはブロックされているため取得できません';
+          } else if (errorMsg.includes('ERR_INTERNET_DISCONNECTED') || errorMsg.includes('ERR_NAME_NOT_RESOLVED')) {
+            userFriendlyMessage = 'ネットワークエラー: サイトに接続できません';
+          } else if (errorMsg.includes('Navigation timeout') || errorMsg.includes('TimeoutError')) {
+            userFriendlyMessage = 'タイムアウト: サイトの読み込みに時間がかかりすぎています';
+          } else if (errorMsg.includes('スクリーンショットが空です')) {
+            userFriendlyMessage = 'スクリーンショットの取得に失敗しました';
+          } else if (errorMsg.length < 100) {
+            // 短いエラーメッセージはそのまま表示
+            userFriendlyMessage = errorMsg;
+          }
+        }
+
         // エラー時はステータスをerrorに更新
         await supabaseAdmin
           .from('active_projects')
           .update({
             status: 'error',
-            error_message: error instanceof Error ? error.message : 'スクリーンショット取得に失敗しました',
+            error_message: userFriendlyMessage,
           })
           .eq('id', project.id);
       } finally {

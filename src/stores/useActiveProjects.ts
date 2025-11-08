@@ -6,10 +6,11 @@ export interface ActiveProject {
   url: string;
   pageCount: number;
   devices: string[];
-  status: 'processing' | 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error' | 'cancelled';
   progress: number;
   expiresAt: Date;
   downloadCount: number;
+  errorMessage?: string | null;
 }
 
 interface ActiveProjectsState {
@@ -74,7 +75,7 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
       const now = new Date().toISOString();
       const { data, error } = await supabase
         .from('active_projects')
-        .select('id, history_id, user_id, status, progress, expires_at, download_count')
+        .select('id, history_id, user_id, status, progress, expires_at, download_count, error_message')
         .eq('user_id', userId)
         .gt('expires_at', now)
         .order('created_at', { ascending: false });
@@ -102,6 +103,7 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
               progress: project.progress,
               expiresAt: new Date(project.expires_at),
               downloadCount: project.download_count,
+              errorMessage: project.error_message,
             } as ActiveProject;
           })
         );
@@ -159,6 +161,7 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
               progress: newProject.progress,
               expiresAt: new Date(newProject.expires_at),
               downloadCount: newProject.download_count,
+              errorMessage: newProject.error_message,
             };
 
             get().addProject(project);
@@ -179,6 +182,7 @@ export const useActiveProjects = create<ActiveProjectsState>((set, get) => ({
               pageCount: historyData?.page_count,
               url: historyData?.base_url,
               devices: historyData?.metadata?.devices,
+              errorMessage: updatedProject.error_message,
             });
           } else if (payload.eventType === 'DELETE') {
             const deletedProject = payload.old as any;

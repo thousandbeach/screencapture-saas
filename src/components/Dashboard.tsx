@@ -162,12 +162,7 @@ const Dashboard: React.FC = () => {
 
       if (error) {
         console.error('[History] Error fetching history:', error);
-        console.error('[History] Error details:', {
-          message: error?.message,
-          details: error?.details,
-          hint: error?.hint,
-          code: error?.code,
-        });
+        console.error('[History] Full error object:', JSON.stringify(error, null, 2));
         return;
       }
 
@@ -276,7 +271,20 @@ const Dashboard: React.FC = () => {
           filter: `user_id=eq.${user.id}`,
         },
         () => {
-          console.log('[Stats] New capture detected, refetching stats...');
+          console.log('[Stats] New capture_history INSERT detected, refetching stats...');
+          fetchStats();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'capture_history',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          console.log('[Stats] capture_history UPDATE detected, refetching stats...');
           fetchStats();
         }
       )
@@ -584,6 +592,39 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleCancel = async (projectId: string) => {
+    if (!confirm('キャプチャを中断しますか？\n処理を中止しますが、既に取得した画像は保持されます。')) {
+      return;
+    }
+
+    try {
+      // トークン取得
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('ログインが必要です');
+        return;
+      }
+
+      // キャンセルAPI呼び出し
+      const response = await fetch(`/api/cancel?project_id=${projectId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'キャンセルに失敗しました');
+      }
+
+      console.log('[Cancel] Successfully cancelled project:', projectId);
+    } catch (error) {
+      console.error('Cancel error:', error);
+      alert(error instanceof Error ? error.message : 'キャンセルに失敗しました');
+    }
+  };
+
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
@@ -781,6 +822,7 @@ const Dashboard: React.FC = () => {
                   key={project.id}
                   project={project}
                   onDownload={handleDownload}
+                  onCancel={handleCancel}
                   darkMode={darkMode}
                 />
               ))}
@@ -966,8 +1008,9 @@ const StatsCard: React.FC<{
 const ActiveProjectCard: React.FC<{
   project: ActiveProject;
   onDownload: (id: string) => void;
+  onCancel: (id: string) => void;
   darkMode: boolean;
-}> = ({ project, onDownload, darkMode }) => {
+}> = ({ project, onDownload, onCancel, darkMode }) => {
   const timeLeft = getTimeLeft(project.expiresAt);
   const isUrgent = timeLeft <= 2;
   const isWarning = timeLeft <= 6;
@@ -991,28 +1034,59 @@ const ActiveProjectCard: React.FC<{
             処理中
           </span>
         )}
+        {project.status === 'cancelled' && (
+          <span className="text-xs bg-gradient-to-r from-gray-400 to-gray-500 text-white px-2 py-1 rounded">
+            キャンセル
+          </span>
+        )}
+        {project.status === 'error' && (
+          <span className="text-xs bg-gradient-to-r from-red-500 to-pink-600 text-white px-2 py-1 rounded">
+            エラー
+          </span>
+        )}
       </div>
       <div className="flex items-center justify-between">
         {project.status === 'processing' ? (
+          <>
+            <div className={`flex items-center text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              <span>{project.progress}% 完了</span>
+            </div>
+            <button
+              onClick={() => onCancel(project.id)}
+              className="px-3 py-1 bg-gradient-to-r from-red-500 to-pink-600 text-white text-xs rounded hover:shadow-lg transition-all flex items-center"
+            >
+              <X className="h-3 w-3 mr-1" />
+              キャンセル
+            </button>
+          </>
+        ) : project.status === 'cancelled' ? (
           <div className={`flex items-center text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            <span>{project.progress}% 完了</span>
+            <X className="h-3 w-3 mr-1" />
+            <span>ユーザーによりキャンセルされました</span>
+          </div>
+        ) : project.status === 'error' ? (
+          <div className="flex items-center text-xs text-red-600 flex-1 min-w-0">
+            <AlertTriangle className="h-3 w-3 mr-1 flex-shrink-0" />
+            <span className="truncate">{project.errorMessage || 'エラーが発生しました'}</span>
           </div>
         ) : (
-          <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {isUrgent && <AlertTriangle className="h-3 w-3 mr-1" />}
-            <Clock className="h-3 w-3 mr-1" />
-            <span>残り {timeLeft}時間</span>
-          </div>
-        )}
-        {project.status === 'completed' && (
-          <button
-            onClick={() => onDownload(project.id)}
-            className="px-3 py-1 gradient-primary text-white text-xs rounded hover:shadow-lg transition-all flex items-center"
-          >
-            <Download className="h-3 w-3 mr-1" />
-            ZIP
-          </button>
+          <>
+            <div className={`flex items-center text-xs ${isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              {isUrgent && <AlertTriangle className="h-3 w-3 mr-1" />}
+              <Clock className="h-3 w-3 mr-1" />
+              <span>残り {timeLeft}時間</span>
+            </div>
+            {project.status === 'completed' && (
+              <button
+                onClick={() => onDownload(project.id)}
+                className="px-3 py-1 gradient-primary text-white text-xs rounded hover:shadow-lg transition-all flex items-center"
+              >
+                <Download className="h-3 w-3 mr-1" />
+                ZIP
+              </button>
+            )}
+          </>
         )}
       </div>
       <div className="mt-2 w-full glass rounded-full h-1.5">
@@ -1020,11 +1094,19 @@ const ActiveProjectCard: React.FC<{
           className={`h-1.5 rounded-full transition-all duration-300 ${
             project.status === 'processing' ? 'gradient-animated' :
             project.status === 'completed' ? 'bg-gradient-to-r from-green-400 to-emerald-500' :
+            project.status === 'error' ? 'bg-gradient-to-r from-red-500 to-pink-500' :
+            project.status === 'cancelled' ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
             isUrgent ? 'bg-gradient-to-r from-red-500 to-pink-500' :
             isWarning ? 'bg-gradient-to-r from-orange-400 to-yellow-500' :
             'bg-gradient-to-r from-green-400 to-emerald-500'
           }`}
-          style={{ width: `${project.status === 'processing' ? project.progress : project.status === 'completed' ? 100 : (timeLeft / 24) * 100}%` }}
+          style={{ width: `${
+            project.status === 'processing' ? project.progress :
+            project.status === 'completed' ? 100 :
+            project.status === 'error' ? 100 :
+            project.status === 'cancelled' ? project.progress :
+            (timeLeft / 24) * 100
+          }%` }}
         />
       </div>
     </div>
