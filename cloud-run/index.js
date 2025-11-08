@@ -14,15 +14,25 @@ const supabase = createClient(
 
 // CORS設定（Vercelからのリクエストのみ許可）
 app.use((req, res, next) => {
-  const allowedOrigins = [
-    process.env.VERCEL_URL,
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ];
-
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
+
+  // 許可するオリジンのパターン
+  const isAllowedOrigin =
+    // ローカル開発環境
+    origin === 'http://localhost:3000' ||
+    origin === 'http://localhost:3001' ||
+    // Vercel本番・プレビュー（.vercel.app ドメイン）
+    (origin && origin.endsWith('.vercel.app')) ||
+    // 環境変数で指定されたURL（httpsプレフィックス付き）
+    (process.env.VERCEL_URL && (
+      origin === process.env.VERCEL_URL ||
+      origin === `https://${process.env.VERCEL_URL}` ||
+      origin === `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}`
+    ));
+
+  if (isAllowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
