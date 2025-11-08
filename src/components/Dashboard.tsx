@@ -162,12 +162,7 @@ const Dashboard: React.FC = () => {
 
       if (error) {
         console.error('[History] Error fetching history:', error);
-        console.error('[History] Error details:', {
-          message: error?.message,
-          details: error?.details,
-          hint: error?.hint,
-          code: error?.code,
-        });
+        console.error('[History] Full error object:', JSON.stringify(error, null, 2));
         return;
       }
 
@@ -276,7 +271,20 @@ const Dashboard: React.FC = () => {
           filter: `user_id=eq.${user.id}`,
         },
         () => {
-          console.log('[Stats] New capture detected, refetching stats...');
+          console.log('[Stats] New capture_history INSERT detected, refetching stats...');
+          fetchStats();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'capture_history',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          console.log('[Stats] capture_history UPDATE detected, refetching stats...');
           fetchStats();
         }
       )

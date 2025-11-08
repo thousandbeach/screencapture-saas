@@ -263,7 +263,6 @@ export async function POST(request: NextRequest) {
         const devices = options.devices || ['desktop'];
         const totalScreenshots = urlsToCrawl.length * devices.length;
         let completedScreenshots = 0;
-        const fileMapping: Array<{ filename: string; url: string; device: string; pageIndex: number }> = [];
 
         // ファイルとURLのマッピング情報を保存
         const fileMapping: Array<{ filename: string; url: string; device: string; pageIndex: number }> = [];
