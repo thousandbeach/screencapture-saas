@@ -1,38 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { supabaseAdmin } from '@/lib/supabase-server';
 
 /**
  * キャプチャキャンセルAPI
  * PUT /api/cancel?project_id=xxx
+ *
+ * Cloud Runに処理を委譲する形に変更
  */
 export async function PUT(request: NextRequest) {
   try {
-    // クエリパラメータからproject_idを取得
+    // 1. クエリパラメータ取得
     const searchParams = request.nextUrl.searchParams;
     const projectId = searchParams.get('project_id');
 
     if (!projectId) {
       return NextResponse.json(
-        { error: 'project_idが必要です' },
+        { error: 'project_idは必須です' },
         { status: 400 }
       );
     }
 
-    // 認証チェック
+    // 2. 認証チェック
     const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: '認証が必要です' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(token);
+    const token = authHeader.substring(7);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
       return NextResponse.json(
@@ -41,64 +39,38 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // プロジェクト情報を取得
-    const { data: project, error: projectError } = await supabaseAdmin
-      .from('active_projects')
-      .select('id, user_id, status')
-      .eq('id', projectId)
-      .single();
+    // 3. Cloud Runに処理を委譲
+    const cloudRunUrl = process.env.CLOUD_RUN_API_URL;
 
-    if (projectError || !project) {
+    if (!cloudRunUrl) {
       return NextResponse.json(
-        { error: 'プロジェクトが見つかりません' },
-        { status: 404 }
-      );
-    }
-
-    // 権限チェック
-    if (project.user_id !== user.id) {
-      return NextResponse.json(
-        { error: 'アクセス権限がありません' },
-        { status: 403 }
-      );
-    }
-
-    // ステータスチェック（processing中のみキャンセル可能）
-    if (project.status !== 'processing') {
-      return NextResponse.json(
-        { error: `ステータスが ${project.status} のプロジェクトはキャンセルできません` },
-        { status: 400 }
-      );
-    }
-
-    // ステータスをcancelledに更新
-    const { error: updateError } = await supabaseAdmin
-      .from('active_projects')
-      .update({
-        status: 'cancelled',
-        error_message: 'ユーザーによりキャンセルされました',
-      })
-      .eq('id', projectId);
-
-    if (updateError) {
-      console.error('Cancel error:', updateError);
-      return NextResponse.json(
-        { error: 'キャンセルに失敗しました' },
+        { error: 'Cloud Run APIが設定されていません' },
         { status: 500 }
       );
     }
 
-    console.log(`[Cancel] Project ${projectId} cancelled by user ${user.id}`);
-
-    return NextResponse.json({
-      success: true,
-      project_id: projectId,
-      status: 'cancelled',
+    // Cloud Runにリクエスト送信（同期、レスポンスを待つ）
+    const response = await fetch(`${cloudRunUrl}/api/cancel?project_id=${projectId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': authHeader,
+      },
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      return NextResponse.json(errorData, { status: response.status });
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
+
   } catch (error) {
-    console.error('Cancel API error:', error);
+    console.error('[Cancel API] Error:', error);
     return NextResponse.json(
-      { error: 'サーバーエラーが発生しました' },
+      {
+        error: error instanceof Error ? error.message : 'キャンセルに失敗しました',
+      },
       { status: 500 }
     );
   }
