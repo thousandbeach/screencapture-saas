@@ -104,6 +104,8 @@ export async function POST(request: NextRequest) {
       storage_path: `${user.id}/${history.id}`,
       status: 'processing',
       progress: 0,
+      download_count: 0,
+      error_message: null,
     };
 
     const { data: project, error: projectError } = await supabaseAdmin
