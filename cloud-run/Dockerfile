@@ -69,6 +69,10 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # アプリケーションコードをコピー
 COPY index.js ./
+COPY chromium-wrapper.sh ./
+
+# Chromiumラッパーに実行権限を付与
+RUN chmod +x chromium-wrapper.sh
 
 # 非rootユーザーで実行（セキュリティ強化）
 RUN groupadd -r nodejs && useradd -r -g nodejs nodejs && \
@@ -79,9 +83,9 @@ USER nodejs
 ENV PORT=8080
 EXPOSE 8080
 
-# Puppeteer設定（Chromiumのパスを指定）
+# Puppeteer設定（Chromiumラッパーのパスを指定）
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/app/chromium-wrapper.sh
 
 # アプリケーション起動
 CMD ["node", "index.js"]

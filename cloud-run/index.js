@@ -88,10 +88,20 @@ app.post('/api/capture', authenticate, async (req, res) => {
     // Puppeteer起動
     console.log('[Capture] Launching browser...');
 
-    // Cloud Run環境では /usr/bin/chromium を使用、ローカルではPuppeteerのデフォルトを使用
+    // Puppeteerの起動オプション（executablePathは環境変数で指定）
     const launchOptions = {
       headless: true,
-      args: [
+      args: []
+    };
+
+    // PUPPETEER_EXECUTABLE_PATHが設定されている場合はそのパスを使用
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      console.log('[Capture] Using browser from PUPPETEER_EXECUTABLE_PATH:', process.env.PUPPETEER_EXECUTABLE_PATH);
+    } else {
+      console.log('[Capture] Using Puppeteer default Chrome');
+      // ローカル環境用のオプション
+      launchOptions.args = [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -99,15 +109,7 @@ app.post('/api/capture', authenticate, async (req, res) => {
         '--disable-crash-reporter',
         '--disable-software-rasterizer',
         '--disable-extensions'
-      ]
-    };
-
-    // Cloud Run環境かどうかを判定（環境変数 K_SERVICE が設定されている）
-    if (process.env.K_SERVICE) {
-      launchOptions.executablePath = '/usr/bin/chromium';
-      console.log('[Capture] Using Cloud Run Chromium: /usr/bin/chromium');
-    } else {
-      console.log('[Capture] Using Puppeteer default Chrome');
+      ];
     }
 
     browser = await puppeteer.launch(launchOptions);
