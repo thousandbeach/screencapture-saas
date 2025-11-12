@@ -88,10 +88,13 @@ app.post('/api/capture', authenticate, async (req, res) => {
     // Puppeteer起動
     console.log('[Capture] Launching browser...');
 
-    // Puppeteerの起動オプション（executablePathは環境変数で指定）
+    // Puppeteerの起動オプション
     const launchOptions = {
       headless: true,
-      args: []
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox'
+      ]
     };
 
     // PUPPETEER_EXECUTABLE_PATHが設定されている場合はそのパスを使用
@@ -100,16 +103,6 @@ app.post('/api/capture', authenticate, async (req, res) => {
       console.log('[Capture] Using browser from PUPPETEER_EXECUTABLE_PATH:', process.env.PUPPETEER_EXECUTABLE_PATH);
     } else {
       console.log('[Capture] Using Puppeteer default Chrome');
-      // ローカル環境用のオプション
-      launchOptions.args = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-crash-reporter',
-        '--disable-software-rasterizer',
-        '--disable-extensions'
-      ];
     }
 
     browser = await puppeteer.launch(launchOptions);
