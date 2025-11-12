@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
     // 5. Cloud Runに処理を委譲（非同期）
     const cloudRunUrl = process.env.CLOUD_RUN_API_URL;
 
+    console.log('[Capture API] CLOUD_RUN_API_URL:', cloudRunUrl);
+    console.log('[Capture API] Sending request to Cloud Run with projectId:', project.id);
+
     if (!cloudRunUrl) {
       console.error('[Capture API] CLOUD_RUN_API_URL not configured');
 
