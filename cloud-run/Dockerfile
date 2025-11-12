@@ -79,5 +79,9 @@ USER nodejs
 ENV PORT=8080
 EXPOSE 8080
 
+# Puppeteer設定（Chromiumのパスを指定）
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # アプリケーション起動
 CMD ["node", "index.js"]
