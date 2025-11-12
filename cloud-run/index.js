@@ -86,16 +86,28 @@ app.post('/api/capture', authenticate, async (req, res) => {
 
   try {
     // Puppeteer起動
-    browser = await puppeteer.launch({
+    console.log('[Capture] Launching browser...');
+
+    // Cloud Run環境では /usr/bin/chromium を使用、ローカルではPuppeteerのデフォルトを使用
+    const launchOptions = {
       headless: true,
-      executablePath: '/usr/bin/chromium',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu'
       ]
-    });
+    };
+
+    // Cloud Run環境かどうかを判定（環境変数 K_SERVICE が設定されている）
+    if (process.env.K_SERVICE) {
+      launchOptions.executablePath = '/usr/bin/chromium';
+      console.log('[Capture] Using Cloud Run Chromium: /usr/bin/chromium');
+    } else {
+      console.log('[Capture] Using Puppeteer default Chrome');
+    }
+
+    browser = await puppeteer.launch(launchOptions);
 
     console.log('[Capture] Browser launched successfully');
 
@@ -115,6 +127,7 @@ app.post('/api/capture', authenticate, async (req, res) => {
       for (const device of devices) {
         console.log(`[Capture] Processing: ${pageUrl} (${device})`);
 
+        console.log(`[Capture] Creating new page...`);
         const page = await browser.newPage();
 
         // デバイス設定
@@ -124,20 +137,25 @@ app.post('/api/capture', authenticate, async (req, res) => {
           mobile: { width: 480, height: 800, isMobile: true, hasTouch: true }
         };
 
+        console.log(`[Capture] Setting viewport for ${device}...`);
         await page.setViewport(viewports[device]);
 
         // ページ読み込み
+        console.log(`[Capture] Navigating to ${pageUrl}...`);
         await page.goto(pageUrl, {
           waitUntil: 'networkidle0',
           timeout: 60000
         });
+        console.log(`[Capture] Page loaded successfully`);
 
         // スクリーンショット取得
+        console.log(`[Capture] Taking screenshot...`);
         const screenshot = await page.screenshot({
           type: 'webp',
           quality: 85,
           fullPage: true
         });
+        console.log(`[Capture] Screenshot captured (${screenshot.byteLength} bytes)`);
 
         // Supabase Storageにアップロード
         const filename = `${device}_${Date.now()}.webp`;
