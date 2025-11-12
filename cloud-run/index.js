@@ -93,7 +93,9 @@ app.post('/api/capture', authenticate, async (req, res) => {
       headless: true,
       args: [
         '--no-sandbox',
-        '--disable-setuid-sandbox'
+        '--disable-setuid-sandbox',
+        '--disable-crash-reporter',
+        '--disable-breakpad'
       ]
     };
 

@@ -87,5 +87,9 @@ EXPOSE 8080
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
+# Chromiumのクラッシュレポーターを無効化
+ENV CHROME_CRASH_REPORTER_ENABLED=false
+ENV BREAKPAD_DUMP_LOCATION=/tmp
+
 # アプリケーション起動
 CMD ["node", "index.js"]
