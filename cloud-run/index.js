@@ -88,6 +88,7 @@ app.post('/api/capture', authenticate, async (req, res) => {
     // Puppeteer起動
     browser = await puppeteer.launch({
       headless: true,
+      executablePath: '/usr/bin/chromium',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
