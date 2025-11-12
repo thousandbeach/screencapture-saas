@@ -19,7 +19,7 @@ RUN npm ci --only=production && \
 # ========================================
 FROM node:20-slim AS runtime
 
-# Puppeteer用の依存関係をインストール
+# Puppeteer用の依存関係とChromiumをインストール
 RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
@@ -58,6 +58,7 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    chromium \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
