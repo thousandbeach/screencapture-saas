@@ -101,13 +101,31 @@ app.post('/api/capture', authenticate, async (req, res) => {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
       launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
       console.log('[Capture] Using browser from PUPPETEER_EXECUTABLE_PATH:', process.env.PUPPETEER_EXECUTABLE_PATH);
+
+      // ファイルの存在確認
+      const fs = require('fs');
+      if (fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+        console.log('[Capture] Chromium binary exists at:', process.env.PUPPETEER_EXECUTABLE_PATH);
+      } else {
+        console.error('[Capture] Chromium binary NOT FOUND at:', process.env.PUPPETEER_EXECUTABLE_PATH);
+      }
     } else {
       console.log('[Capture] Using Puppeteer default Chrome');
     }
 
-    browser = await puppeteer.launch(launchOptions);
-
-    console.log('[Capture] Browser launched successfully');
+    try {
+      browser = await puppeteer.launch(launchOptions);
+      console.log('[Capture] Browser launched successfully');
+    } catch (launchError) {
+      console.error('[Capture] Browser launch failed:', {
+        message: launchError.message,
+        stack: launchError.stack,
+        code: launchError.code,
+        stderr: launchError.stderr,
+        stdout: launchError.stdout
+      });
+      throw launchError;
+    }
 
     const devices = options.devices || ['desktop'];
     const totalScreenshots = urls.length * devices.length;
