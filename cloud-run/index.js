@@ -95,7 +95,10 @@ app.post('/api/capture', authenticate, async (req, res) => {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-crash-reporter',
+        '--disable-software-rasterizer',
+        '--disable-extensions'
       ]
     };
 
