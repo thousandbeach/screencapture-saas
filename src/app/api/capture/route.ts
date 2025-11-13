@@ -149,7 +149,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Cloud Runにリクエスト送信（非同期、レスポンスを待たない）
-    fetch(`${cloudRunUrl}/api/capture`, {
+    const cloudRunRequestUrl = `${cloudRunUrl}/api/capture`;
+    console.log('[Capture API] Sending request to:', cloudRunRequestUrl);
+    console.log('[Capture API] Request body:', JSON.stringify({ projectId: project.id, urls: [url], options }));
+
+    fetch(cloudRunRequestUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -160,18 +164,28 @@ export async function POST(request: NextRequest) {
         urls: [url], // TODO: クロール機能実装後は複数URL対応
         options,
       }),
-    }).catch((error) => {
-      console.error('[Capture API] Cloud Run request error:', error);
+    })
+      .then(async (response) => {
+        console.log('[Capture API] Cloud Run response status:', response.status);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[Capture API] Cloud Run error response:', errorText);
+          throw new Error(`Cloud Run returned ${response.status}: ${errorText}`);
+        }
+        console.log('[Capture API] Cloud Run request succeeded');
+      })
+      .catch((error) => {
+        console.error('[Capture API] Cloud Run request error:', error);
 
-      // エラー時はステータス更新
-      supabaseAdmin
-        .from('active_projects')
-        .update({
-          status: 'error',
-          error_message: error.message,
-        })
-        .eq('id', project.id);
-    });
+        // エラー時はステータス更新
+        supabaseAdmin
+          .from('active_projects')
+          .update({
+            status: 'error',
+            error_message: error.message,
+          })
+          .eq('id', project.id);
+      });
 
     console.log('[Capture API] Delegated to Cloud Run');
 
