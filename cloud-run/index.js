@@ -287,7 +287,9 @@ app.get('/api/download', authenticate, async (req, res) => {
         .download(`${userId}/${project_id}/${file.name}`);
 
       if (fileData) {
-        zip.file(file.name, fileData);
+        // BlobをArrayBufferに変換してからJSZipに追加
+        const arrayBuffer = await fileData.arrayBuffer();
+        zip.file(file.name, arrayBuffer);
       }
     }
 
