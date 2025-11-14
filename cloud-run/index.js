@@ -281,6 +281,53 @@ app.get('/api/download', authenticate, async (req, res) => {
     // ZIPファイル作成
     const zip = new JSZip();
 
+    // メタデータファイルとREADMEを追加
+    const historyData = project.capture_history;
+    if (historyData) {
+      const fileMapping = project.file_mapping || [];
+
+      const metadata = {
+        url: historyData.base_url,
+        captured_at: historyData.captured_at,
+        page_count: historyData.page_count,
+        settings: historyData.metadata,
+        project_id: project_id,
+        download_date: new Date().toISOString(),
+        files: fileMapping,
+      };
+
+      zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+      // 人間が読みやすいREADMEも追加
+      let readme = `ScreenCapture - キャプチャ情報
+==================
+
+ベースURL: ${historyData.base_url}
+取得日時: ${new Date(historyData.captured_at).toLocaleString('ja-JP')}
+ページ数: ${historyData.page_count}
+ダウンロード日時: ${new Date().toLocaleString('ja-JP')}
+
+`;
+
+      // ファイルとURLのマッピング情報を追加
+      if (fileMapping.length > 0) {
+        readme += '\n【ファイルとURLの対応】\n';
+        readme += '==================\n\n';
+
+        fileMapping.forEach((mapping) => {
+          readme += `${mapping.filename}\n`;
+          readme += `  └ URL: ${mapping.url}\n`;
+          readme += `  └ デバイス: ${mapping.device}\n\n`;
+        });
+      }
+
+      readme += '\nこのフォルダには、上記URLのスクリーンショットが含まれています。\n';
+      readme += '詳細な設定情報は metadata.json をご確認ください。\n';
+
+      zip.file('README.txt', readme);
+    }
+
+    // 各ファイルをダウンロードしてZIPに追加
     for (const file of files) {
       const { data: fileData } = await supabase.storage
         .from('screenshots')
