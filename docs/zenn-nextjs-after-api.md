@@ -277,6 +277,9 @@ import { NextRequest, NextResponse, after } from 'next/server'
 export async function POST(request: NextRequest) {
   const project = await createProject()
 
+  // リクエストから認証ヘッダーを取得
+  const authHeader = request.headers.get('authorization')
+
   // after()でレスポンス後も処理を継続
   after(async () => {
     try {
@@ -284,7 +287,7 @@ export async function POST(request: NextRequest) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': authHeader || '', // 認証ヘッダーを転送
         },
         body: JSON.stringify({
           projectId: project.id,
