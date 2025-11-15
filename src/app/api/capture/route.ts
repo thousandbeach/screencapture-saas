@@ -174,15 +174,15 @@ export async function POST(request: NextRequest) {
         }
         console.log('[Capture API] Cloud Run request succeeded');
       })
-      .catch((error) => {
+      .catch(async (error) => {
         console.error('[Capture API] Cloud Run request error:', error);
 
-        // エラー時はステータス更新
-        supabaseAdmin
+        // エラー時はステータス更新（awaitして確実に書き込む）
+        await supabaseAdmin
           .from('active_projects')
           .update({
             status: 'error',
-            error_message: error.message,
+            error_message: `Fetch error: ${error.message}`,
           })
           .eq('id', project.id);
       });
