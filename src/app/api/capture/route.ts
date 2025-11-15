@@ -153,7 +153,8 @@ export async function POST(request: NextRequest) {
     console.log('[Capture API] Sending request to:', cloudRunRequestUrl);
     console.log('[Capture API] Request body:', JSON.stringify({ projectId: project.id, urls: [url], options }));
 
-    fetch(cloudRunRequestUrl, {
+    // waitUntil を使ってLambda終了後も処理を継続
+    const fetchPromise = fetch(cloudRunRequestUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -186,6 +187,11 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', project.id);
       });
+
+    // waitUntilでLambda終了後も処理を継続させる
+    if (request.waitUntil) {
+      request.waitUntil(fetchPromise);
+    }
 
     console.log('[Capture API] Delegated to Cloud Run');
 
