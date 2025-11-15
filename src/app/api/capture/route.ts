@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import {
@@ -153,45 +153,52 @@ export async function POST(request: NextRequest) {
     console.log('[Capture API] Sending request to:', cloudRunRequestUrl);
     console.log('[Capture API] Request body:', JSON.stringify({ projectId: project.id, urls: [url], options }));
 
-    // waitUntil を使ってLambda終了後も処理を継続
-    const fetchPromise = fetch(cloudRunRequestUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': authHeader,
-      },
-      body: JSON.stringify({
-        projectId: project.id,
-        urls: [url], // TODO: クロール機能実装後は複数URL対応
-        options,
-      }),
-    })
-      .then(async (response) => {
+    // after()を使ってレスポンス送信後もCloud Runリクエストを継続
+    after(async () => {
+      try {
+        const response = await fetch(cloudRunRequestUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authHeader,
+          },
+          body: JSON.stringify({
+            projectId: project.id,
+            urls: [url], // TODO: クロール機能実装後は複数URL対応
+            options,
+          }),
+        });
+
         console.log('[Capture API] Cloud Run response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error('[Capture API] Cloud Run error response:', errorText);
-          throw new Error(`Cloud Run returned ${response.status}: ${errorText}`);
+
+          // エラー時はステータス更新
+          await supabaseAdmin
+            .from('active_projects')
+            .update({
+              status: 'error',
+              error_message: `Cloud Run returned ${response.status}: ${errorText}`,
+            })
+            .eq('id', project.id);
+        } else {
+          console.log('[Capture API] Cloud Run request succeeded');
         }
-        console.log('[Capture API] Cloud Run request succeeded');
-      })
-      .catch(async (error) => {
+      } catch (error) {
         console.error('[Capture API] Cloud Run request error:', error);
 
-        // エラー時はステータス更新（awaitして確実に書き込む）
+        // エラー時はステータス更新
         await supabaseAdmin
           .from('active_projects')
           .update({
             status: 'error',
-            error_message: `Fetch error: ${error.message}`,
+            error_message: `Fetch error: ${error instanceof Error ? error.message : 'Unknown error'}`,
           })
           .eq('id', project.id);
-      });
-
-    // waitUntilでLambda終了後も処理を継続させる
-    if (request.waitUntil) {
-      request.waitUntil(fetchPromise);
-    }
+      }
+    });
 
     console.log('[Capture API] Delegated to Cloud Run');
 
