@@ -58,4 +58,13 @@
     50% { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
   }
+
+  /* ツールチップの表示タイミングを早くする */
+  [title] {
+    position: relative;
+  }
+
+  [title]:hover::after {
+    transition-delay: 0.2s;
+  }
 }

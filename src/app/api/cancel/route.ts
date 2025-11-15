@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 /**
- * ダウンロードAPI
- * GET /api/download?project_id=xxx
+ * キャプチャキャンセルAPI
+ * PUT /api/cancel?project_id=xxx
  *
  * Cloud Runに処理を委譲する形に変更
  */
-export async function GET(request: NextRequest) {
+export async function PUT(request: NextRequest) {
   try {
     // 1. クエリパラメータ取得
     const searchParams = request.nextUrl.searchParams;
@@ -50,8 +50,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Cloud Runにリクエスト送信（同期、レスポンスを待つ）
-    const response = await fetch(`${cloudRunUrl}/api/download?project_id=${projectId}`, {
-      method: 'GET',
+    const response = await fetch(`${cloudRunUrl}/api/cancel?project_id=${projectId}`, {
+      method: 'PUT',
       headers: {
         'Authorization': authHeader,
       },
@@ -62,21 +62,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(errorData, { status: response.status });
     }
 
-    // ZIPファイルをそのまま返す
-    const blob = await response.blob();
-
-    return new NextResponse(blob, {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="screenshots_${projectId}.zip"`,
-      },
-    });
+    const data = await response.json();
+    return NextResponse.json(data);
 
   } catch (error) {
-    console.error('[Download API] Error:', error);
+    console.error('[Cancel API] Error:', error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'ダウンロードに失敗しました',
+        error: error instanceof Error ? error.message : 'キャンセルに失敗しました',
       },
       { status: 500 }
     );
