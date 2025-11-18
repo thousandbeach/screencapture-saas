@@ -161,8 +161,8 @@ app.post('/api/capture', authenticate, async (req, res) => {
         // ページ読み込み
         console.log(`[Capture] Navigating to ${pageUrl}...`);
         await page.goto(pageUrl, {
-          waitUntil: 'networkidle0',
-          timeout: 60000
+          waitUntil: 'networkidle2',  // networkidle0 → networkidle2 (より現実的)
+          timeout: 90000  // 60秒 → 90秒 (余裕を持たせる)
         });
         console.log(`[Capture] Page loaded successfully`);
 
