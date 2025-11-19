@@ -6,6 +6,10 @@ export interface CaptureSettings {
   maxPages: number;
   allPages: boolean;
   excludePopups: boolean;
+  basicAuth?: {
+    username: string;
+    password: string;
+  };
 }
 
 export interface FavoriteSite {

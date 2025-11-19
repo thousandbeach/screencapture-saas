@@ -158,6 +158,15 @@ app.post('/api/capture', authenticate, async (req, res) => {
         console.log(`[Capture] Setting viewport for ${device}...`);
         await page.setViewport(viewports[device]);
 
+        // Basic認証が指定されている場合は設定
+        if (options.auth && options.auth.username && options.auth.password) {
+          console.log(`[Capture] Setting up Basic Auth for ${device}...`);
+          await page.authenticate({
+            username: options.auth.username,
+            password: options.auth.password,
+          });
+        }
+
         // ページ読み込み
         console.log(`[Capture] Navigating to ${pageUrl}...`);
         await page.goto(pageUrl, {

@@ -317,6 +317,22 @@ const Dashboard: React.FC = () => {
         return;
       }
 
+      // Basic認証情報を含むオプションを準備
+      const options: any = {
+        devices: captureSettings.devices,
+        max_pages: captureSettings.allPages ? 300 : captureSettings.maxPages,
+        all_pages: captureSettings.allPages,
+        exclude_popups: captureSettings.excludePopups,
+      };
+
+      // Basic認証情報が入力されている場合のみ追加
+      if (captureSettings.basicAuth?.username && captureSettings.basicAuth?.password) {
+        options.auth = {
+          username: captureSettings.basicAuth.username,
+          password: captureSettings.basicAuth.password,
+        };
+      }
+
       // API呼び出し
       const response = await fetch('/api/capture', {
         method: 'POST',
@@ -326,12 +342,7 @@ const Dashboard: React.FC = () => {
         },
         body: JSON.stringify({
           url,
-          options: {
-            devices: captureSettings.devices,
-            max_pages: captureSettings.allPages ? 300 : captureSettings.maxPages,
-            all_pages: captureSettings.allPages,
-            exclude_popups: captureSettings.excludePopups,
-          },
+          options,
         }),
       });
 
@@ -1425,6 +1436,58 @@ const SettingsModal: React.FC<{
                   ポップアップを除外
                 </span>
               </label>
+            </div>
+
+            {/* Basic Authentication */}
+            <div>
+              <label className={`block text-sm font-medium mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
+                Basic認証（オプション）
+              </label>
+              <div className="space-y-3">
+                <div>
+                  <label className={`block text-xs font-medium mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    ユーザー名
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="username"
+                    value={localSettings.basicAuth?.username || ''}
+                    onChange={(e) => setLocalSettings({
+                      ...localSettings,
+                      basicAuth: {
+                        username: e.target.value,
+                        password: localSettings.basicAuth?.password || ''
+                      }
+                    })}
+                    className={`w-full px-3 py-2 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      darkMode ? 'border-gray-600 text-gray-100' : 'border-gray-300 text-gray-900'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-xs font-medium mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    パスワード
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="password"
+                    value={localSettings.basicAuth?.password || ''}
+                    onChange={(e) => setLocalSettings({
+                      ...localSettings,
+                      basicAuth: {
+                        username: localSettings.basicAuth?.username || '',
+                        password: e.target.value
+                      }
+                    })}
+                    className={`w-full px-3 py-2 glass rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      darkMode ? 'border-gray-600 text-gray-100' : 'border-gray-300 text-gray-900'
+                    }`}
+                  />
+                </div>
+                <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  ※ 認証情報はリクエスト時のみ使用され、保存されません
+                </p>
+              </div>
             </div>
           </div>
 
