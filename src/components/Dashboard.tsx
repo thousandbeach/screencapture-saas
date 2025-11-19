@@ -1302,7 +1302,7 @@ const SettingsModal: React.FC<{
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <div
-          className="glass-strong rounded-xl shadow-2xl max-w-md w-full pointer-events-auto"
+          className="glass-strong rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -1323,7 +1323,7 @@ const SettingsModal: React.FC<{
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-6 overflow-y-auto flex-1">
             {/* Device Selection */}
             <div>
               <label className={`block text-sm font-medium mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>
