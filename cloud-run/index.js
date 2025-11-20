@@ -175,6 +175,87 @@ app.post('/api/capture', authenticate, async (req, res) => {
         });
         console.log(`[Capture] Page loaded successfully`);
 
+        // JavaScript実行とレンダリングの完了を待つ
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log(`[Capture] Wait completed for ${device}`);
+
+        // ポップアップ除外処理
+        if (options.exclude_popups) {
+          await page.evaluate(() => {
+            // OneTrust、Cookiebot、その他のクッキー同意モーダル/ポップアップのセレクター
+            const specificSelectors = [
+              '#onetrust-consent-sdk',
+              '#onetrust-banner-sdk',
+              '.onetrust-pc-dark-filter',
+              '#CybotCookiebotDialog',
+              '.cookiebot-dialog',
+              '#cookie-banner',
+              '#cookie-consent',
+              '#cookiebanner',
+            ];
+
+            // 特定のセレクターを強制的に削除
+            specificSelectors.forEach(selector => {
+              try {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                  el.remove();
+                });
+              } catch (e) {
+                // エラーは無視
+              }
+            });
+
+            // 一般的なパターンマッチングセレクター
+            const patternSelectors = [
+              '[role="dialog"]',
+              '[class*="cookie"]',
+              '[class*="consent"]',
+              '[class*="gdpr"]',
+              '[class*="modal"]',
+              '[class*="popup"]',
+              '[id*="cookie"]',
+              '[id*="consent"]',
+              '[id*="gdpr"]',
+              '[id*="modal"]',
+              '[id*="popup"]',
+            ];
+
+            // セレクターに一致する要素を非表示にする
+            patternSelectors.forEach(selector => {
+              try {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                  const htmlEl = el;
+                  // モーダルやポップアップっぽい要素のみ除外（z-indexが高い、positionがfixed/absoluteなど）
+                  const style = window.getComputedStyle(htmlEl);
+                  if (
+                    style.position === 'fixed' ||
+                    style.position === 'absolute' ||
+                    parseInt(style.zIndex) > 1000
+                  ) {
+                    htmlEl.style.display = 'none';
+                  }
+                });
+              } catch (e) {
+                // エラーは無視
+              }
+            });
+
+            // overlayやbackdropも除外
+            const overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"]');
+            overlays.forEach(el => {
+              const htmlEl = el;
+              const style = window.getComputedStyle(htmlEl);
+              if (style.position === 'fixed' || style.position === 'absolute') {
+                htmlEl.style.display = 'none';
+              }
+            });
+          });
+
+          console.log(`[Capture] Excluded popups for ${device}`);
+        }
+
         // スクリーンショット取得
         console.log(`[Capture] Taking screenshot...`);
         const screenshot = await page.screenshot({
