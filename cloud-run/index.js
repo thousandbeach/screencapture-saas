@@ -216,6 +216,17 @@ app.post('/api/capture', authenticate, async (req, res) => {
         const bodyContent = await page.evaluate(() => document.body.innerText);
         console.log(`[Capture] Body content length: ${bodyContent.length} chars`);
 
+        // CSS読み込み状態とスタイル情報を確認
+        const styleInfo = await page.evaluate(() => {
+          const styleSheets = document.styleSheets.length;
+          const bgColor = window.getComputedStyle(document.body).backgroundColor;
+          const color = window.getComputedStyle(document.body).color;
+          const images = document.images.length;
+          const loadedImages = Array.from(document.images).filter(img => img.complete).length;
+          return { styleSheets, bgColor, color, images, loadedImages };
+        });
+        console.log(`[Capture] Style info:`, JSON.stringify(styleInfo));
+
         // ポップアップ除外処理
         if (options.exclude_popups) {
           await page.evaluate(() => {
