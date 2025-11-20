@@ -175,9 +175,92 @@ app.post('/api/capture', authenticate, async (req, res) => {
         });
         console.log(`[Capture] Page loaded successfully`);
 
-        // JavaScript実行とレンダリングの完了を待つ
+        // Webフォントの読み込み完了を待つ
+        console.log(`[Capture] Waiting for fonts to load...`);
+        await page.evaluate(() => document.fonts.ready);
+        console.log(`[Capture] Fonts loaded`);
+
+        // メインコンテンツの表示を待つ（一般的なセレクタを試す）
+        console.log(`[Capture] Waiting for main content to render...`);
+        const contentSelectors = [
+          'main',
+          '[role="main"]',
+          '#main',
+          '#content',
+          '.main-content',
+          'article',
+          'body > div'
+        ];
+
+        let contentFound = false;
+        for (const selector of contentSelectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 10000 });
+            console.log(`[Capture] Content found with selector: ${selector}`);
+            contentFound = true;
+            break;
+          } catch (e) {
+            // このセレクタでは見つからなかった、次を試す
+          }
+        }
+
+        if (!contentFound) {
+          console.log(`[Capture] No specific content selector found, using fallback wait`);
+        }
+
+        // 追加の待機時間（レンダリング完了を確実にする）
         await new Promise(resolve => setTimeout(resolve, 3000));
         console.log(`[Capture] Wait completed for ${device}`);
+
+        // ページが実際にレンダリングされているか確認（body要素が存在するか）
+        const bodyContent = await page.evaluate(() => document.body.innerText);
+        console.log(`[Capture] Body content length: ${bodyContent.length} chars`);
+
+        // CSS読み込み状態とスタイル情報を確認
+        const styleInfo = await page.evaluate(() => {
+          const styleSheets = document.styleSheets.length;
+          const bgColor = window.getComputedStyle(document.body).backgroundColor;
+          const color = window.getComputedStyle(document.body).color;
+          const images = document.images.length;
+          const loadedImages = Array.from(document.images).filter(img => img.complete).length;
+          return { styleSheets, bgColor, color, images, loadedImages };
+        });
+        console.log(`[Capture] Style info:`, JSON.stringify(styleInfo));
+
+        // ページを下までスクロールして遅延読み込みコンテンツを読み込む
+        console.log(`[Capture] Scrolling to load lazy content...`);
+        await page.evaluate(async () => {
+          // ページの高さを取得
+          const getScrollHeight = () => document.documentElement.scrollHeight;
+          let lastHeight = getScrollHeight();
+
+          // 少しずつスクロールダウン
+          const scrollStep = 500; // 500pxずつスクロール
+          let currentPosition = 0;
+
+          while (currentPosition < lastHeight) {
+            currentPosition += scrollStep;
+            window.scrollTo(0, currentPosition);
+
+            // スクロール後に少し待機（遅延読み込みの発火を待つ）
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // ページ高さが変わったか確認
+            const newHeight = getScrollHeight();
+            if (newHeight > lastHeight) {
+              lastHeight = newHeight;
+            }
+          }
+
+          // 最下部に到達
+          window.scrollTo(0, lastHeight);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          // 最上部に戻る
+          window.scrollTo(0, 0);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        });
+        console.log(`[Capture] Scroll completed`);
 
         // ポップアップ除外処理
         if (options.exclude_popups) {
