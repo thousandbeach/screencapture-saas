@@ -1,0 +1,496 @@
+const express = require('express');
+const puppeteer = require('puppeteer');
+const { createClient } = require('@supabase/supabase-js');
+const JSZip = require('jszip');
+
+const app = express();
+app.use(express.json());
+
+// Supabase Client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+// CORS設定（Vercelからのリクエストのみ許可）
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // 許可するオリジンのパターン
+  const isAllowedOrigin =
+    // ローカル開発環境
+    origin === 'http://localhost:3000' ||
+    origin === 'http://localhost:3001' ||
+    // Vercel本番・プレビュー（.vercel.app ドメイン）
+    (origin && origin.endsWith('.vercel.app')) ||
+    // 環境変数で指定されたURL（httpsプレフィックス付き）
+    (process.env.VERCEL_URL && (
+      origin === process.env.VERCEL_URL ||
+      origin === `https://${process.env.VERCEL_URL}` ||
+      origin === `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}`
+    ));
+
+  if (isAllowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+// 認証ミドルウェア
+async function authenticate(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const token = authHeader.substring(7);
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return res.status(500).json({ error: 'Authentication failed' });
+  }
+}
+
+// ヘルスチェック
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// スクリーンショット取得API
+app.post('/api/capture', authenticate, async (req, res) => {
+  const { projectId, urls, options } = req.body;
+  const userId = req.user.id;
+
+  console.log('[Capture] Starting capture for project:', projectId);
+
+  let browser;
+
+  try {
+    // Puppeteer起動
+    console.log('[Capture] Launching browser...');
+
+    // Puppeteerの起動オプション
+    const launchOptions = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-crash-reporter',
+        '--disable-breakpad'
+      ]
+    };
+
+    // PUPPETEER_EXECUTABLE_PATHが設定されている場合はそのパスを使用
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      console.log('[Capture] Using browser from PUPPETEER_EXECUTABLE_PATH:', process.env.PUPPETEER_EXECUTABLE_PATH);
+
+      // ファイルの存在確認
+      const fs = require('fs');
+      if (fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+        console.log('[Capture] Chromium binary exists at:', process.env.PUPPETEER_EXECUTABLE_PATH);
+      } else {
+        console.error('[Capture] Chromium binary NOT FOUND at:', process.env.PUPPETEER_EXECUTABLE_PATH);
+      }
+    } else {
+      console.log('[Capture] Using Puppeteer default Chrome');
+    }
+
+    try {
+      browser = await puppeteer.launch(launchOptions);
+      console.log('[Capture] Browser launched successfully');
+    } catch (launchError) {
+      console.error('[Capture] Browser launch failed:', {
+        message: launchError.message,
+        stack: launchError.stack,
+        code: launchError.code,
+        stderr: launchError.stderr,
+        stdout: launchError.stdout
+      });
+      throw launchError;
+    }
+
+    const devices = options.devices || ['desktop'];
+    const totalScreenshots = urls.length * devices.length;
+    let completedScreenshots = 0;
+
+    // ファイルマッピング情報
+    const fileMapping = [];
+
+    // 各URLについて、各デバイスでスクリーンショット取得
+    let pageIndex = 0;
+
+    for (const pageUrl of urls) {
+      pageIndex++;
+
+      for (const device of devices) {
+        console.log(`[Capture] Processing: ${pageUrl} (${device})`);
+
+        console.log(`[Capture] Creating new page...`);
+        const page = await browser.newPage();
+
+        // デバイス設定
+        const viewports = {
+          desktop: { width: 1920, height: 1080, isMobile: false, hasTouch: false },
+          tablet: { width: 1024, height: 768, isMobile: true, hasTouch: true },
+          mobile: { width: 480, height: 800, isMobile: true, hasTouch: true }
+        };
+
+        console.log(`[Capture] Setting viewport for ${device}...`);
+        await page.setViewport(viewports[device]);
+
+        // Basic認証が指定されている場合は設定
+        if (options.auth && options.auth.username && options.auth.password) {
+          console.log(`[Capture] Setting up Basic Auth for ${device}...`);
+          await page.authenticate({
+            username: options.auth.username,
+            password: options.auth.password,
+          });
+        }
+
+        // ページ読み込み
+        console.log(`[Capture] Navigating to ${pageUrl}...`);
+        await page.goto(pageUrl, {
+          waitUntil: 'networkidle2',  // networkidle0 → networkidle2 (より現実的)
+          timeout: 90000  // 60秒 → 90秒 (余裕を持たせる)
+        });
+        console.log(`[Capture] Page loaded successfully`);
+
+        // JavaScript実行とレンダリングの完了を待つ
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log(`[Capture] Wait completed for ${device}`);
+
+        // ポップアップ除外処理
+        if (options.exclude_popups) {
+          await page.evaluate(() => {
+            // OneTrust、Cookiebot、その他のクッキー同意モーダル/ポップアップのセレクター
+            const specificSelectors = [
+              '#onetrust-consent-sdk',
+              '#onetrust-banner-sdk',
+              '.onetrust-pc-dark-filter',
+              '#CybotCookiebotDialog',
+              '.cookiebot-dialog',
+              '#cookie-banner',
+              '#cookie-consent',
+              '#cookiebanner',
+            ];
+
+            // 特定のセレクターを強制的に削除
+            specificSelectors.forEach(selector => {
+              try {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                  el.remove();
+                });
+              } catch (e) {
+                // エラーは無視
+              }
+            });
+
+            // 一般的なパターンマッチングセレクター
+            const patternSelectors = [
+              '[role="dialog"]',
+              '[class*="cookie"]',
+              '[class*="consent"]',
+              '[class*="gdpr"]',
+              '[class*="modal"]',
+              '[class*="popup"]',
+              '[id*="cookie"]',
+              '[id*="consent"]',
+              '[id*="gdpr"]',
+              '[id*="modal"]',
+              '[id*="popup"]',
+            ];
+
+            // セレクターに一致する要素を非表示にする
+            patternSelectors.forEach(selector => {
+              try {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                  const htmlEl = el;
+                  // モーダルやポップアップっぽい要素のみ除外（z-indexが高い、positionがfixed/absoluteなど）
+                  const style = window.getComputedStyle(htmlEl);
+                  if (
+                    style.position === 'fixed' ||
+                    style.position === 'absolute' ||
+                    parseInt(style.zIndex) > 1000
+                  ) {
+                    htmlEl.style.display = 'none';
+                  }
+                });
+              } catch (e) {
+                // エラーは無視
+              }
+            });
+
+            // overlayやbackdropも除外
+            const overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"]');
+            overlays.forEach(el => {
+              const htmlEl = el;
+              const style = window.getComputedStyle(htmlEl);
+              if (style.position === 'fixed' || style.position === 'absolute') {
+                htmlEl.style.display = 'none';
+              }
+            });
+          });
+
+          console.log(`[Capture] Excluded popups for ${device}`);
+        }
+
+        // スクリーンショット取得
+        console.log(`[Capture] Taking screenshot...`);
+        const screenshot = await page.screenshot({
+          type: 'webp',
+          quality: 85,
+          fullPage: true
+        });
+        console.log(`[Capture] Screenshot captured (${screenshot.byteLength} bytes)`);
+
+        // Supabase Storageにアップロード
+        const filename = `${device}_${Date.now()}.webp`;
+        const uploadPath = `${userId}/${projectId}/${filename}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('screenshots')
+          .upload(uploadPath, screenshot, {
+            contentType: 'image/webp'
+          });
+
+        if (uploadError) {
+          console.error('[Capture] Upload error:', uploadError);
+          throw uploadError;
+        }
+
+        // ファイルマッピング情報を保存
+        fileMapping.push({
+          filename,
+          url: pageUrl,
+          device,
+          pageIndex
+        });
+
+        console.log(`[Capture] Uploaded: ${uploadPath}`);
+
+        await page.close();
+
+        // プログレス更新
+        completedScreenshots++;
+        const progress = Math.round((completedScreenshots / totalScreenshots) * 100);
+
+        await supabase
+          .from('active_projects')
+          .update({ progress })
+          .eq('id', projectId);
+      }
+    }
+
+    // 完了ステータスに更新
+    await supabase
+      .from('active_projects')
+      .update({
+        status: 'completed',
+        progress: 100,
+        file_mapping: fileMapping
+      })
+      .eq('id', projectId);
+
+    console.log('[Capture] Completed successfully');
+
+    res.json({
+      success: true,
+      projectId,
+      screenshotCount: completedScreenshots
+    });
+
+  } catch (error) {
+    console.error('[Capture] Error:', error);
+
+    // エラーステータスに更新
+    await supabase
+      .from('active_projects')
+      .update({
+        status: 'error',
+        error_message: error.message
+      })
+      .eq('id', projectId);
+
+    res.status(500).json({ error: error.message });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+});
+
+// ダウンロードAPI
+app.get('/api/download', authenticate, async (req, res) => {
+  const { project_id } = req.query;
+  const userId = req.user.id;
+
+  try {
+    // プロジェクト情報取得
+    const { data: project, error } = await supabase
+      .from('active_projects')
+      .select('*, capture_history(*)')
+      .eq('id', project_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // ストレージから画像一覧取得
+    const { data: files } = await supabase.storage
+      .from('screenshots')
+      .list(`${userId}/${project_id}`);
+
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'No files found' });
+    }
+
+    // ZIPファイル作成
+    const zip = new JSZip();
+
+    // メタデータファイルとREADMEを追加
+    const historyData = project.capture_history;
+    if (historyData) {
+      const fileMapping = project.file_mapping || [];
+
+      const metadata = {
+        url: historyData.base_url,
+        captured_at: historyData.captured_at,
+        page_count: historyData.page_count,
+        settings: historyData.metadata,
+        project_id: project_id,
+        download_date: new Date().toISOString(),
+        files: fileMapping,
+      };
+
+      zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+      // 人間が読みやすいREADMEも追加
+      let readme = `ScreenCapture - キャプチャ情報
+==================
+
+ベースURL: ${historyData.base_url}
+取得日時: ${new Date(historyData.captured_at).toLocaleString('ja-JP')}
+ページ数: ${historyData.page_count}
+ダウンロード日時: ${new Date().toLocaleString('ja-JP')}
+
+`;
+
+      // ファイルとURLのマッピング情報を追加
+      if (fileMapping.length > 0) {
+        readme += '\n【ファイルとURLの対応】\n';
+        readme += '==================\n\n';
+
+        fileMapping.forEach((mapping) => {
+          readme += `${mapping.filename}\n`;
+          readme += `  └ URL: ${mapping.url}\n`;
+          readme += `  └ デバイス: ${mapping.device}\n\n`;
+        });
+      }
+
+      readme += '\nこのフォルダには、上記URLのスクリーンショットが含まれています。\n';
+      readme += '詳細な設定情報は metadata.json をご確認ください。\n';
+
+      zip.file('README.txt', readme);
+    }
+
+    // 各ファイルをダウンロードしてZIPに追加
+    for (const file of files) {
+      const { data: fileData } = await supabase.storage
+        .from('screenshots')
+        .download(`${userId}/${project_id}/${file.name}`);
+
+      if (fileData) {
+        // BlobをArrayBufferに変換してからJSZipに追加
+        const arrayBuffer = await fileData.arrayBuffer();
+        zip.file(file.name, arrayBuffer);
+      }
+    }
+
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+    // ダウンロードカウント更新
+    await supabase
+      .from('active_projects')
+      .update({ download_count: project.download_count + 1 })
+      .eq('id', project_id);
+
+    // ZIPファイルを返す
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="screenshots_${project_id}.zip"`);
+    res.send(zipBuffer);
+
+  } catch (error) {
+    console.error('[Download] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// キャンセルAPI
+app.put('/api/cancel', authenticate, async (req, res) => {
+  const { project_id } = req.query;
+  const userId = req.user.id;
+
+  try {
+    // プロジェクト存在確認
+    const { data: project, error: fetchError } = await supabase
+      .from('active_projects')
+      .select('id, status')
+      .eq('id', project_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError || !project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (project.status !== 'processing') {
+      return res.status(400).json({ error: 'Project is not processing' });
+    }
+
+    // ステータスをcancelledに更新
+    const { error: updateError } = await supabase
+      .from('active_projects')
+      .update({ status: 'cancelled' })
+      .eq('id', project_id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    res.json({ success: true, message: 'Project cancelled' });
+
+  } catch (error) {
+    console.error('[Cancel] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// サーバー起動
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+  console.log(`[Server] Cloud Run API listening on port ${port}`);
+});

@@ -92,6 +92,7 @@ export const DEVICE_VIEWPORTS = {
 export interface CaptureMetadata {
   devices?: DeviceType[];
   max_pages?: number;
+  all_pages?: boolean;
   exclude_popups?: boolean;
   wait_time?: number;
   custom_settings?: Record<string, unknown>;
@@ -112,6 +113,14 @@ export interface CaptureSettings {
 // ============================================================================
 
 /**
+ * Basic認証情報（リクエスト時のみ使用、保存しない）
+ */
+export interface BasicAuth {
+  username: string;
+  password: string;
+}
+
+/**
  * キャプチャリクエスト
  */
 export interface CaptureRequest {
@@ -121,6 +130,7 @@ export interface CaptureRequest {
     max_pages: number;
     all_pages: boolean;
     exclude_popups: boolean;
+    auth?: BasicAuth;  // Basic認証情報（オプション）
   };
 }
 
