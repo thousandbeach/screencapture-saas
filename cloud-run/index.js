@@ -180,8 +180,36 @@ app.post('/api/capture', authenticate, async (req, res) => {
         await page.evaluate(() => document.fonts.ready);
         console.log(`[Capture] Fonts loaded`);
 
-        // JavaScript実行とレンダリングの完了を待つ
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // メインコンテンツの表示を待つ（一般的なセレクタを試す）
+        console.log(`[Capture] Waiting for main content to render...`);
+        const contentSelectors = [
+          'main',
+          '[role="main"]',
+          '#main',
+          '#content',
+          '.main-content',
+          'article',
+          'body > div'
+        ];
+
+        let contentFound = false;
+        for (const selector of contentSelectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 10000 });
+            console.log(`[Capture] Content found with selector: ${selector}`);
+            contentFound = true;
+            break;
+          } catch (e) {
+            // このセレクタでは見つからなかった、次を試す
+          }
+        }
+
+        if (!contentFound) {
+          console.log(`[Capture] No specific content selector found, using fallback wait`);
+        }
+
+        // 追加の待機時間（レンダリング完了を確実にする）
+        await new Promise(resolve => setTimeout(resolve, 3000));
         console.log(`[Capture] Wait completed for ${device}`);
 
         // ページが実際にレンダリングされているか確認（body要素が存在するか）
