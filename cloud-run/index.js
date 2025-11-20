@@ -262,6 +262,31 @@ app.post('/api/capture', authenticate, async (req, res) => {
         });
         console.log(`[Capture] Scroll completed`);
 
+        // 全画像の読み込み完了を待つ
+        console.log(`[Capture] Waiting for all images to load...`);
+        await page.evaluate(async () => {
+          const images = Array.from(document.images);
+          await Promise.all(
+            images.map(img => {
+              if (img.complete) return Promise.resolve();
+              return new Promise((resolve) => {
+                img.addEventListener('load', resolve);
+                img.addEventListener('error', resolve); // エラーでも続行
+                // タイムアウト（10秒）
+                setTimeout(resolve, 10000);
+              });
+            })
+          );
+        });
+
+        // 画像読み込み後の状態確認
+        const finalImageInfo = await page.evaluate(() => {
+          const images = document.images.length;
+          const loadedImages = Array.from(document.images).filter(img => img.complete).length;
+          return { images, loadedImages };
+        });
+        console.log(`[Capture] Images loaded: ${finalImageInfo.loadedImages}/${finalImageInfo.images}`);
+
         // ポップアップ除外処理
         if (options.exclude_popups) {
           await page.evaluate(() => {
