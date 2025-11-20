@@ -161,9 +161,12 @@ app.post('/api/capture', authenticate, async (req, res) => {
         // Basic認証が指定されている場合は設定
         if (options.auth && options.auth.username && options.auth.password) {
           console.log(`[Capture] Setting up Basic Auth for ${device}...`);
-          await page.authenticate({
-            username: options.auth.username,
-            password: options.auth.password,
+          console.log(`[Capture] Username: ${options.auth.username}`);
+
+          // Authorizationヘッダーを使用したBasic認証
+          const credentials = Buffer.from(`${options.auth.username}:${options.auth.password}`).toString('base64');
+          await page.setExtraHTTPHeaders({
+            'Authorization': `Basic ${credentials}`
           });
         }
 
