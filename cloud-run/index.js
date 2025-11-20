@@ -181,8 +181,12 @@ app.post('/api/capture', authenticate, async (req, res) => {
         console.log(`[Capture] Fonts loaded`);
 
         // JavaScript実行とレンダリングの完了を待つ
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 5000));
         console.log(`[Capture] Wait completed for ${device}`);
+
+        // ページが実際にレンダリングされているか確認（body要素が存在するか）
+        const bodyContent = await page.evaluate(() => document.body.innerText);
+        console.log(`[Capture] Body content length: ${bodyContent.length} chars`);
 
         // ポップアップ除外処理
         if (options.exclude_popups) {
