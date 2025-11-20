@@ -177,7 +177,7 @@ app.post('/api/capture', authenticate, async (req, res) => {
 
         // Webフォントの読み込み完了を待つ
         console.log(`[Capture] Waiting for fonts to load...`);
-        await page.evaluateHandle(() => document.fonts.ready);
+        await page.evaluate(() => document.fonts.ready);
         console.log(`[Capture] Fonts loaded`);
 
         // JavaScript実行とレンダリングの完了を待つ
