@@ -227,6 +227,41 @@ app.post('/api/capture', authenticate, async (req, res) => {
         });
         console.log(`[Capture] Style info:`, JSON.stringify(styleInfo));
 
+        // ページを下までスクロールして遅延読み込みコンテンツを読み込む
+        console.log(`[Capture] Scrolling to load lazy content...`);
+        await page.evaluate(async () => {
+          // ページの高さを取得
+          const getScrollHeight = () => document.documentElement.scrollHeight;
+          let lastHeight = getScrollHeight();
+
+          // 少しずつスクロールダウン
+          const scrollStep = 500; // 500pxずつスクロール
+          let currentPosition = 0;
+
+          while (currentPosition < lastHeight) {
+            currentPosition += scrollStep;
+            window.scrollTo(0, currentPosition);
+
+            // スクロール後に少し待機（遅延読み込みの発火を待つ）
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // ページ高さが変わったか確認
+            const newHeight = getScrollHeight();
+            if (newHeight > lastHeight) {
+              lastHeight = newHeight;
+            }
+          }
+
+          // 最下部に到達
+          window.scrollTo(0, lastHeight);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          // 最上部に戻る
+          window.scrollTo(0, 0);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        });
+        console.log(`[Capture] Scroll completed`);
+
         // ポップアップ除外処理
         if (options.exclude_popups) {
           await page.evaluate(() => {
